@@ -2,7 +2,7 @@
 
 **Every node in your fleet gets a cryptographically signed update, verifies it, installs to a backup partition, reboots, checks its own health, and rolls back if anything breaks. No human in the loop.**
 
-I wanted to push self-driving code to a fleet of racing robots without bricking them. So I built Dispatch — a fleet orchestration layer on top of Balena that handles staged rollouts, health-gated promotions, automatic rollback, and A/B testing across a fleet. Balena handles the plumbing. Dispatch is the brain.
+I wanted to push self-driving code to a fleet of racing robots without bricking them. So I built Dispatch: a fleet orchestration layer on top of Balena that handles staged rollouts, health-gated promotions, automatic rollback, and A/B testing across a fleet. Balena handles the plumbing. Dispatch is the brain.
 
 <div align="center">
 
