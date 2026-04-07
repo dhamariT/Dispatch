@@ -28,7 +28,7 @@ This is a learning project. I'm transitioning from web/backend (Ruby on Rails, T
 **What's done:**
 - Industry research on Tesla, Rivian, Uptane, HERE OTA Connect, and Balena — see [`docs/ota-industry-research.md`](docs/ota-industry-research.md)
 - Fleet architecture design (Balena for device OTA, custom orchestration on top)
-- Hardware acquired (3x PiRacer AI Kits + Raspberry Pi 4s + D500 LiDAR)
+- Hardware acquired (3x PiRacer AI Kits + Raspberry Pi 4s + Slamtec RPLIDAR C1)
 - Career research into Fleet Infrastructure Engineering roles (Waymo, Latitude AI, Zoox)
 - This README
 
@@ -43,7 +43,7 @@ This is a learning project. I'm transitioning from web/backend (Ruby on Rails, T
 This project has two layers that work together:
 
 **Layer 1 — The Autonomy Stack (the cars):**
-Three PiRacer AI robots, each with a Raspberry Pi 4, a 5MP camera, and a D500 LiDAR sensor. Each car runs a sensor fusion pipeline that combines LiDAR point clouds with camera vision to understand its environment. The cars coordinate their movements — they're not just three independent robots, they're a fleet that works together.
+Three PiRacer AI robots, each with a Raspberry Pi 4, a 5MP camera, and a Slamtec RPLIDAR C1 LiDAR sensor. Each car runs a sensor fusion pipeline that combines LiDAR point clouds with camera vision to understand its environment. The cars coordinate their movements — they're not just three independent robots, they're a fleet that works together.
 
 **Layer 2 — The Fleet Orchestration Platform (what I'm building):**
 As I develop and improve the autonomy stack, I need a way to push updates to the fleet safely. Not just "deploy new code" — I need staged rollouts where one car gets the new LiDAR fusion algorithm first, I watch its perception accuracy for 10 minutes, and if it stays healthy, the update rolls out to the other two. If something breaks, automatic rollback. If I'm testing two different approaches to path planning, I need to be able to run version A on car 1 and version B on cars 2 and 3.
@@ -82,11 +82,11 @@ A bad rollout on my PiRacer fleet means three RC cars collide or lose sensor fus
 │              │  PostgreSQL  │◄────────────────────┘        │
 │              │  fleet state │                              │
 │              └──────┬──────┘                               │
-└─────────────────────┤────────────────────────────────────┘
+└─────────────────────┼──────────────────────────────────────┘
                       │
                Balena API / balenaCloud
                       │
-     ┌────────────────┤────────────────┐
+     ┌────────────────┼────────────────┐
      │                │                │
 ┌────┴─────┐   ┌─────┴────┐   ┌──────┴───┐
 │ PiRacer 1│   │ PiRacer 2│   │ PiRacer 3│
@@ -95,7 +95,7 @@ A bad rollout on my PiRacer fleet means three RC cars collide or lose sensor fus
 │ Camera   │   │ Camera   │   │ Camera   │
 │ Fusion   │   │ Fusion   │   │ Fusion   │
 │ Movement │   │ Movement │   │ Movement │
-└──────────┘   └──────────┘   └───────────┘
+└──────────┘   └──────────┘   └──────────┘
      🏎️              🏎️              🏎️
         ← coordinated movement →
 ```
@@ -121,7 +121,7 @@ The **Web Dashboard** (React + TypeScript) gives real-time visibility into the f
 > * **A/B fleet testing** — Run version A on car 1 and version B on cars 2-3 to compare sensor fusion approaches.
 >
 > **Sensor Fusion & Coordination:**
-> * **LiDAR + camera fusion** — Combine D500 LiDAR 360° point clouds with 5MP camera data for environment perception.
+> * **LiDAR + camera fusion** — Combine RPLIDAR C1 360° point clouds with 5MP camera data for environment perception.
 > * **Multi-car coordination** — Cars share their fused sensor data and coordinate movement to avoid collisions and cover areas together.
 >
 > **Observability:**
@@ -149,7 +149,7 @@ This isn't a simulation — the fleet is real hardware I already own.
 
 | Sensor | Model | Purpose |
 |--------|-------|---------|
-| LiDAR | [Waveshare D500 LiDAR Kit](https://www.waveshare.com/d500-lidar-kit.htm) | 360° DTOF scanning, 12m range, 5000 measurements/sec — environment perception |
+| LiDAR | [Slamtec RPLIDAR C1](https://www.waveshare.com/rplidar-c1.htm) | 360° DTOF scanning, 12m range, ±30mm accuracy, anti-interference (multi-car safe), 3.3V native GPIO connection |
 | Camera | 5MP (onboard PiRacer) | Visual perception — fused with LiDAR for multi-modal environment understanding |
 
 ### Control Plane
@@ -165,12 +165,12 @@ This isn't a simulation — the fleet is real hardware I already own.
 | Component | Technology | Why |
 |-----------|-----------|-----|
 | Device OTA | **Balena (balenaOS + balenaCloud)** | Container-based fleet management, handles OS updates, provisioning, secure connectivity |
-| Fleet Orchestration | **TypeScript** | Rollout engine, health monitoring, Balena API integration |
+| Fleet Orchestration | **Python or TypeScript** | Rollout engine, health monitoring, Balena API integration |
 | Sensor Fusion | **C++ / Python** | LiDAR + camera processing, performance-critical perception pipeline |
 | Coordination | **gRPC + Protobuf** | Inter-car communication for movement coordination |
 | Database | **PostgreSQL** | Fleet state, rollout history, health metrics |
 | Dashboard | **React + TypeScript** | Real-time fleet visibility — my existing strength |
-| Testing | **pytest** | Unit and integration tests for orchestration and fusion |
+| Testing | **pytest / GoogleTest** | Unit and integration tests for orchestration and fusion |
 | CI/CD | **GitHub Actions** | Automated builds, tests, container builds pushed to balenaCloud |
 
 ## Industry Research
@@ -205,3 +205,26 @@ This project directly maps to roles like:
 - **Software Engineer, Fleet Monitoring & Platform** (Waymo) — internal tooling and monitoring for fleet operations
 - **Software Engineer, Deploy** (Latitude AI / Ford) — ships software to Ford's autonomous vehicle fleet
 - **Robotics Platform Engineer** — fleet orchestration for warehouse robots, drones, autonomous vehicles
+
+## Milestones
+
+- [ ] **Milestone 1** — Balena fleet provisioning: get all 3 PiRacers on balenaCloud ← *starting here*
+- [ ] **Milestone 2** — Basic sensor fusion on a single car (LiDAR + camera)
+- [ ] **Milestone 3** — Fleet orchestration service scaffolding + Balena API integration
+- [ ] **Milestone 4** — Staged rollout engine (canary → health gate → promote → full fleet)
+- [ ] **Milestone 5** — Fleet health monitoring (sensor accuracy, device vitals, fusion latency)
+- [ ] **Milestone 6** — Automatic rollback on health degradation
+- [ ] **Milestone 7** — Multi-car coordination (shared sensor data, coordinated movement)
+- [ ] **Milestone 8** — A/B fleet testing (different versions on different cars)
+- [ ] **Milestone 9** — Web dashboard (React/TS) with real-time fleet status and rollout controls
+- [ ] **Milestone 10** — End-to-end demo: push a new sensor fusion algorithm, watch canary deployment, health-gated promotion, coordinated fleet driving
+
+## About Me
+
+I'm Dhamari Trice-Hanson — 19, incoming CS student at Kettering University (Fall 2026), and currently a full-time software engineer at Hack Club where I built Flavortown (Ruby on Rails, PostgreSQL, Docker).
+
+I'm transitioning from web/backend into fleet infrastructure engineering and autonomous systems. I want to build the platforms that manage fleets of autonomous vehicles — the deployment pipelines, the health monitoring, the orchestration that keeps hundreds of self-driving cars coordinated while their software evolves underneath them.
+
+This project is how I'm learning — by building the exact fleet management infrastructure that companies like Waymo, Latitude AI, and Zoox need.
+
+Huge thanks to the open-source AV community — especially the teams behind Uptane, aktualizr, Balena, and DonkeyCar — for making production-grade tools available to learn from.
