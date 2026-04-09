@@ -1,12 +1,12 @@
 # Dispatch
 
-**Every node in your fleet gets a cryptographically signed update, verifies it, installs to a backup partition, reboots, checks its own health, and rolls back if anything breaks. No human in the loop.**
+Per-device deployment diffing for IoT fleets. Snapshot metrics before a deploy, snapshot after, diff them per device. Built on [Balena](https://www.balena.io/).
 
-I wanted to push self-driving code to a fleet of racing robots without bricking them. So I built Dispatch: a fleet orchestration layer on top of Balena that handles staged rollouts, health-gated promotions, automatic rollback, and A/B testing across a fleet. Balena handles the plumbing. Dispatch is the brain.
+Every fleet tool today gates on "did the update install?" Dispatch gates on "did the update make this device worse?"
 
 <div align="center">
 
-[How It Works](#how-it-works) | [Features](#features) | [Architecture](#architecture) | [Tech Stack](#tech-stack) | [The Story](#the-story) | [Roadmap](#roadmap)
+[How It Works](#how-it-works) · [Architecture](#architecture) · [The PiRacer Story](#the-piracer-story) · [Tech Stack](#tech-stack) · [Research](#research) · [Roadmap](#roadmap)
 
 </div>
 
@@ -14,131 +14,170 @@ I wanted to push self-driving code to a fleet of racing robots without bricking 
 
 ## How It Works
 
-You push code. Dispatch handles the rest.
-
 ```
-1. You trigger a rollout                →  Dispatch picks a canary node
-2. Canary gets the update via Balena    →  Installs to backup partition, reboots
-3. Dispatch watches health metrics      →  Sensor accuracy, latency, device vitals
-4. Health checks pass for 10 minutes    →  Dispatch promotes to the next wave
-5. Something breaks on any node         →  Automatic rollback, fleet paused, you get notified
-6. Everything healthy                   →  Full fleet updated. Zero downtime.
+1. You trigger a deploy                   →  Dispatch snapshots every device's metrics
+2. Canary device gets the update via Balena →  Installs, reboots, starts reporting
+3. Dispatch snapshots the canary again     →  Compares before vs. after
+4. Metrics look good for your soak time    →  Promote to the next wave
+5. Something looks wrong                   →  You see exactly what changed. You decide.
+6. Full fleet healthy                      →  Done. Every device updated.
 ```
 
-That's it. You define the health checks, the rollout strategy, and the failure thresholds. Dispatch executes it.
-
-## Features
-
-> [!NOTE]
-> Dispatch is in active development. Here's what's built and what's coming.
-
-**Fleet Orchestration:**
-- **Staged rollouts** — Canary node → health gate → percentage-based expansion → full fleet. Same pattern Tesla uses to ship FSD to millions of vehicles.
-- **Health-gated promotions** — A canary doesn't promote until every metric you define passes for a duration you configure.
-- **Automatic rollback** — Health degrades after an update? The node rolls back. No human needed.
-- **Version pinning** — Pin specific nodes to specific versions while the rest of the fleet moves forward. Great for debugging.
-- **A/B fleet testing** — Run version A on one group, version B on another. Compare real-world performance across your fleet.
-
-**Observability:**
-- **Real-time fleet dashboard** — Per-node status, version info, health metrics, rollout progress, manual override controls.
-- **Custom health metrics** — Define what "healthy" means for your fleet. Sensor accuracy, API latency, memory pressure, inference speed — whatever matters.
-- **Fleet-wide rollback** — One button. Every node. Back to the last known-good version.
+No ML. No learned baselines. Just before/after diffing, per device. You define the metrics, the soak time, and you make the call.
 
 ## Architecture
 
+Dispatch is a distributed system split across two boundaries: the server and the fleet.
+
 ```
-┌──────────────────────────────────────────────────────────┐
-│                       Dispatch                            │
-│                                                           │
-│  ┌─────────────────┐  ┌──────────────┐  ┌─────────────┐ │
-│  │  Rollout Engine  │  │    Fleet     │  │     Web      │ │
-│  │  staged deploys  │  │   Monitor    │  │  Dashboard   │ │
-│  │  canary/% gates  │  │   health     │  │  (React/TS)  │ │
-│  │  auto-rollback   │  │   metrics    │  │              │ │
-│  └────────┬─────────┘  └──────┬───────┘  └──────┬──────┘ │
-│           │                   │                  │        │
-│           └─────────┬─────────┘                  │        │
-│                     │                            │        │
-│              ┌──────┴──────┐                     │        │
-│              │  PostgreSQL  │◄────────────────────┘        │
-│              │  fleet state │                              │
-│              └──────┬──────┘                               │
-└─────────────────────┼──────────────────────────────────────┘
-                      │
-               Balena API / balenaCloud
-                      │
-     ┌────────────────┼────────────────┐
-     │                │                │
-┌────┴─────┐   ┌─────┴────┐   ┌──────┴───┐
-│  Node 1  │   │  Node 2  │   │  Node N  │
-│ balenaOS │   │ balenaOS │   │ balenaOS │
-│ your app │   │ your app │   │ your app │
-└──────────┘   └──────────┘   └──────────┘
+                    ┌──────────────────────────────────────────────┐
+                    │              dispatchd (Go)                  │
+                    │                                              │
+                    │  ┌──────────┐ ┌──────────┐ ┌──────────────┐ │
+                    │  │ Rollout  │ │ Snapshot  │ │    Fleet     │ │
+                    │  │ Engine   │ │ Engine    │ │   Monitor    │ │
+                    │  └────┬─────┘ └────┬─────┘ └──────┬───────┘ │
+                    │       └────────────┼──────────────┘         │
+                    │              ┌─────┴──────┐                 │
+                    │              │    API     │◄── Next.js      │
+                    │              └─────┬──────┘    Dashboard    │
+                    │                    │                         │
+                    │              ┌─────┴──────┐                 │
+                    │              │ PostgreSQL │                 │
+                    │              │ TimescaleDB│                 │
+                    │              └────────────┘                 │
+                    └────────────────────┬────────────────────────┘
+                                         │
+                              ┌──────────┼──────────┐
+                              │    Balena Cloud API  │
+                              │  (vitals, releases)  │
+                              └──────────┬──────────┘
+                                         │
+                    ┌────────────────────┬┴───────────────────┐
+                    │                    │                    │
+              ┌─────┴──────┐      ┌─────┴──────┐      ┌─────┴──────┐
+              │   Car 1    │      │   Car 2    │      │   Car 3    │
+              │  balenaOS  │      │  balenaOS  │      │  balenaOS  │
+              │            │      │            │      │            │
+              │ ┌────────┐ │      │ ┌────────┐ │      │ ┌────────┐ │
+              │ │your app│ │      │ │your app│ │      │ │your app│ │
+              │ └───┬────┘ │      │ └───┬────┘ │      │ └───┬────┘ │
+              │     │      │      │     │      │      │     │      │
+              │ ┌───┴────┐ │      │ ┌───┴────┐ │      │ ┌───┴────┐ │
+              │ │dispatch│ │      │ │dispatch│ │      │ │dispatch│ │
+              │ │agent   │ │      │ │agent   │ │      │ │agent   │ │
+              │ └───┬────┘ │      │ └───┬────┘ │      │ └───┬────┘ │
+              └─────┼──────┘      └─────┼──────┘      └─────┼──────┘
+                    │                    │                    │
+                    └────────────────────┼────────────────────┘
+                                         │
+                               pushes metrics via HTTP
+                                         │
+                                         ▼
+                                    dispatchd API
 ```
 
-**Rollout Engine** — controls the deployment strategy. Talks to Balena's API to push container updates, but owns the *logic*: which node gets the update first, what metrics to watch, when to promote, when to abort.
+**`dispatchd`** — single Go binary. REST API, rollout engine (canary selection, soak timers, wave promotion via Balena API), snapshot engine (before/after metric capture and diffing), fleet monitor (polls Balena for device vitals, merges with agent metrics).
 
-**Fleet Monitor** — collects health metrics from every node in real time. These feed directly into the Rollout Engine's promotion and rollback decisions.
+**`dispatch-agent`** — lightweight sidecar container on each device. Reads metrics from your app (shared volume or local file), pushes to dispatchd. Knows nothing about rollouts, diffs, or other devices.
 
-**Web Dashboard** — real-time fleet visibility. Which nodes are running which version, rollout progress, health metrics, manual override controls.
+**Dashboard** — Next.js frontend. Per-device diffs, rollout controls, deploy triggers.
+
+### Adding Dispatch to your fleet
+
+**1. Deploy dispatchd** (cloud VM, local machine, wherever):
+```bash
+# TODO: install instructions once the server is built
+```
+
+**2. Add the agent sidecar** to your existing `docker-compose.yml`:
+```yaml
+services:
+  my-app:
+    build: ./app
+    privileged: true
+
+  dispatch-agent:
+    image: dispatch/agent
+    environment:
+      - DISPATCH_URL=https://your-dispatch-instance.com  # where dispatchd lives
+      - DISPATCH_API_KEY=your-key                        # from the dashboard
+    labels:
+      io.balena.features.supervisor-api: 1  # lets agent read device info from Balena's on-device API
+```
+
+**3. Your app just writes metrics to a shared file** — no SDK, no imports, no Dispatch code in your app:
+```python
+# this is your app code — not Dispatch-specific
+import json
+
+metrics = {
+    "lidar_accuracy": compute_lidar_accuracy(),
+    "fusion_latency_ms": measure_fusion_latency()
+}
+
+with open("/data/dispatch/metrics.json", "w") as f:
+    json.dump(metrics, f)
+```
+
+The agent picks it up and pushes it to dispatchd. Your app never talks to Dispatch.
+
+## The PiRacer Story
+
+I'm testing Dispatch on three [Waveshare PiRacer AI Kit](https://www.waveshare.com/piracer-ai-kit.htm) robots. Each one runs:
+
+- **Raspberry Pi 4** — compute
+- **[Slamtec RPLIDAR C1](https://www.waveshare.com/rplidar-c1.htm)** — 360° LiDAR
+- **5MP camera** — vision
+
+They run a sensor fusion pipeline that combines LiDAR point clouds with camera data to perceive the track. A bad deploy breaks a car's ability to see — that's why Dispatch exists. When Car 2's LiDAR accuracy drops after a deploy but Cars 1 and 3 are fine, I need to see that immediately. Fleet averages would hide it.
+
+| PiRacer Fleet | Production Equivalent |
+|--------------|----------------------|
+| 3 PiRacer robots | Waymo robotaxis, Tesla FSD fleet |
+| Balena device OTA | Vehicle OTA (SWUpdate, RAUC) |
+| Dispatch rollout engine | Tesla's staged rollout pipeline |
+| Per-device before/after diffing | Waymo's fleet health verification |
+| LiDAR + camera sensor fusion | Perception stack (the payload being deployed) |
 
 ## Tech Stack
 
 | Component | Technology | Why |
 |-----------|-----------|-----|
-| Device OTA | **Balena** | Container-based fleet management, OS updates, provisioning, secure connectivity |
-| Fleet Orchestration | **Python / TypeScript** | Rollout engine, health monitoring, Balena API integration |
-| Node Communication | **gRPC + Protobuf** | Typed contracts, streaming, bidirectional — for inter-node coordination |
-| Database | **PostgreSQL** | Fleet state, rollout history, health metric time series |
-| Dashboard | **React + TypeScript** | Real-time fleet visibility and rollout controls |
-| CI/CD | **GitHub Actions** | Automated builds, tests, container builds pushed to balenaCloud |
+| Backend | **Go** | API server, rollout engine, snapshot diffing |
+| Frontend | **TypeScript + Next.js** | Dashboard for diffs, rollouts, and deploy controls |
+| Device Agent | **Docker container** | Sidecar on each device, collects and pushes custom metrics |
+| Device OTA | **[Balena](https://docs.balena.io/reference/api/overview/)** | Device vitals, release pinning, deploy triggers |
+| Database | **PostgreSQL + TimescaleDB** | Fleet state, append-only snapshot storage, time-series metrics |
+| CI/CD | **GitHub Actions** | Automated builds and tests |
 
----
+## Research
 
-## The Story
+Before building, I studied how fleet OTA works in production — from the industry leaders down to the open-source tools. Notes in [`docs/ota-industry-research/`](docs/ota-industry-research/):
 
-I'm testing Dispatch on a fleet of three [Waveshare PiRacer](https://www.waveshare.com/piracer-ai-kit.htm) autonomous racing robots — each running a Raspberry Pi 4 with a [Slamtec RPLIDAR C1](https://www.waveshare.com/rplidar-c1.htm) LiDAR sensor and a 5MP camera.
-
-The cars run a sensor fusion pipeline that combines 360° LiDAR point clouds with camera vision to perceive their environment. They coordinate movement as a fleet. When I push a new version of the perception algorithm, Dispatch handles the rollout — canary car first, health-gated promotion, automatic rollback if sensor fusion accuracy drops.
-
-This is what makes the project real: a bad deploy doesn't just break a dashboard. It breaks a moving vehicle's ability to see.
-
-### Why this fleet:
-
-| PiRacer Fleet | Production AV/EV Equivalent |
-|--------------|----------------------------|
-| PiRacer fleet | Waymo robotaxis / Latitude AI test vehicles |
-| Balena (device OTA) | Vehicle OTA system (SWUpdate, RAUC) |
-| Dispatch rollout engine | Fleet deployment pipeline |
-| Fleet health monitoring | Vehicle health / field escalation systems |
-| LiDAR + camera fusion | Perception stack (the payload being deployed) |
-| Multi-car coordination | Multi-agent autonomous fleet coordination |
-
-### Research
-
-Before building, I studied the fleet systems that run in production. Full notes in [`docs/ota-industry-research.md`](docs/ota-industry-research.md):
-
-- **Tesla** — staged rollouts, VIN-keyed deployments, fleet-wide health monitoring
-- **Rivian** — zonal architecture, consolidated update targets
-- **Uptane** — Linux Foundation's automotive OTA security standard
-- **aktualizr (HERE OTA Connect)** — open-source C++ Uptane client
-- **Waymo Fleet Infrastructure** — fleet optimization, health monitoring, field escalation
-
----
+- **Tesla** — staged rollouts (1% → 12% → 41% → full fleet), VIN-keyed deployments, telemetry-gated promotion
+- **Waymo** — simulation-first validation, fleet health monitoring
+- **Rivian** — wave-based rollouts over ~5 days, zonal architecture
+- **Memfault** — closest commercial IoT platform (cohort-level version comparison)
+- **Kayenta** (Netflix/Google) — conceptual ancestor of Dispatch's diffing (parallel population comparison for cloud services)
+- **Uptane** — Linux Foundation automotive OTA security standard
+- **Mender, hawkBit, FoundriesFactory** — open-source fleet OTA (staged rollouts, but no metric awareness)
 
 ## Roadmap
 
-- [ ] Balena fleet provisioning — get all 3 PiRacers on balenaCloud
-- [ ] Sensor fusion on a single car (LiDAR + camera)
-- [ ] Fleet orchestration service + Balena API integration
-- [ ] Staged rollout engine (canary → health gate → promote)
-- [ ] Fleet health monitoring (sensor accuracy, device vitals, fusion latency)
-- [ ] Automatic rollback on health degradation
-- [ ] Multi-car coordination (shared sensor data, coordinated movement)
-- [ ] A/B fleet testing (different versions on different nodes)
-- [ ] Web dashboard with real-time fleet status
-- [ ] End-to-end demo: push a new perception algorithm, canary deploy, health-gated promotion, coordinated fleet driving
+- [ ] Get all 3 PiRacers provisioned on balenaCloud
+- [ ] Sensor fusion pipeline on a single car (LiDAR + camera)
+- [ ] Snapshot collection service — grab per-device metrics on demand
+- [ ] Snapshot diff engine — before/after comparison per device
+- [ ] Rollout engine + Balena API integration
+- [ ] Staged rollouts (canary → soak → promote → full fleet)
+- [ ] Canary selection logic
+- [ ] Version pinning
+- [ ] A/B fleet testing
+- [ ] Web dashboard with real-time diffs and rollout controls
+- [ ] Fleet-wide rollback
+- [ ] End-to-end demo: push new perception code, canary deploy, diff the snapshots, promote to fleet
 
 ## About
 
-Built by [Dhamari Trice-Hanson](https://github.com/dhamariT) — software engineer at Hack Club, incoming CS student at Kettering University. Currently building fleet infrastructure for autonomous systems.
+Built by [Dhamari Trice-Hanson](https://github.com/dhamariT) — software engineer at [Hack Club](https://hackclub.com), incoming CS student at Kettering University.
