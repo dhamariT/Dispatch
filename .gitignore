@@ -45,7 +45,7 @@ node_modules/
 build/
 dist/
 tmp/
-dispatchd
+/dispatchd
 
 # Environment and secrets
 .env
