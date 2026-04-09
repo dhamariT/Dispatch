@@ -201,6 +201,15 @@ in `site/`.
 
 These files may be gitignored, read manually if not auto-loaded.
 
+## Generated Plans & Scratch Docs
+
+Any plan, design doc, refactor outline, scratch note, or other generated
+markdown you produce while working MUST be written to a `local/` folder
+(e.g. `local/`, `site/local/`) — never to the repo root or a tracked
+directory. `local/` and `**/local/` are gitignored so these files stay
+out of GitHub. If `local/` doesn't exist yet, create it. Do not commit
+anything under `local/`.
+
 
 ## Admin Dashboard
 

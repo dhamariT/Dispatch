@@ -74,6 +74,8 @@ docker-compose.override.yml
 PLAN.md
 docs/plans/
 AGENTS.local.md
+local/
+**/local/
 
 # Claude Code local settings
 **/.claude/settings.local.json
