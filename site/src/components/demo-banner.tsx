@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export interface DemoBannerProps {
@@ -37,13 +38,9 @@ export function DemoBanner({ onConnect, className }: DemoBannerProps) {
           </span>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onConnect}
-        className="shrink-0 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs font-semibold text-warning transition-colors hover:bg-warning/20"
-      >
+      <Button variant="outline" size="sm" onClick={onConnect}>
         Connect Balena
-      </button>
+      </Button>
     </div>
   );
 }

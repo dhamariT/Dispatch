@@ -1,5 +1,11 @@
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import {
+  findWorstMetric,
+  formatMetricValue,
+  getWorstSeverity,
+  type Severity,
+} from "@/lib/severity";
 import { StatusDot } from "./status-dot";
 import type { MetricRowProps } from "./metric-row";
 
@@ -11,53 +17,6 @@ export interface DeviceListItemProps {
   metrics?: MetricRowProps[];
   onClick?: () => void;
   expanded?: boolean;
-}
-
-type Severity = "critical" | "warning" | "stable" | "neutral";
-
-function getSeverity(metrics: MetricRowProps[] | undefined): Severity {
-  if (!metrics || metrics.length === 0) return "neutral";
-  let worst: Severity = "neutral";
-  for (const m of metrics) {
-    const delta = Math.abs(m.after - m.before);
-    const isPct = m.format === "percent";
-    if (isPct ? delta >= 5 : delta >= 20) return "critical";
-    if (isPct ? delta >= 2 : delta >= 10) {
-      if (worst !== "critical") worst = "warning";
-    } else if (delta > 0 && worst === "neutral") {
-      worst = "stable";
-    }
-  }
-  return worst;
-}
-
-function findWorstMetric(
-  metrics: MetricRowProps[] | undefined,
-): MetricRowProps | null {
-  if (!metrics || metrics.length === 0) return null;
-  let worst = metrics[0];
-  let worstAbs = Math.abs(metrics[0].after - metrics[0].before);
-  for (const m of metrics) {
-    const abs = Math.abs(m.after - m.before);
-    if (abs > worstAbs) {
-      worst = m;
-      worstAbs = abs;
-    }
-  }
-  return worst;
-}
-
-function formatValue(value: number, format: MetricRowProps["format"]): string {
-  switch (format) {
-    case "percent":
-      return `${value}%`;
-    case "bytes":
-      return `${value}MB`;
-    case "ms":
-      return `${value}ms`;
-    default:
-      return String(value);
-  }
 }
 
 const itemVariants = cva(
@@ -112,7 +71,7 @@ export function DeviceListItem({
   onClick,
   expanded,
 }: DeviceListItemProps) {
-  const severity = getSeverity(metrics);
+  const severity: Severity = getWorstSeverity(metrics);
   const worst = findWorstMetric(metrics);
   const delta = worst ? worst.after - worst.before : 0;
   const sign = delta > 0 ? "+" : "";
@@ -162,17 +121,32 @@ export function DeviceListItem({
       </div>
 
       {worst && status === "deployed" && (
-        <div className="hidden items-baseline gap-2 sm:flex">
-          <span className="text-xs text-muted-foreground">{worst.name}</span>
-          <span className={cn(deltaTextVariants({ severity }))}>
-            {sign}
-            {formatValue(delta, worst.format)}
-          </span>
+        <div className="hidden items-center gap-3 sm:flex">
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              {worst.name}
+            </span>
+            <span className={cn(deltaTextVariants({ severity }))}>
+              {sign}
+              {formatMetricValue(delta, worst.format)}
+            </span>
+          </div>
+          {(severity === "critical" || severity === "warning") && (
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest",
+                severity === "critical" && "bg-critical text-background",
+                severity === "warning" && "bg-warning text-background",
+              )}
+            >
+              {severity}
+            </span>
+          )}
         </div>
       )}
 
       {metrics && metrics.length > 0 && status === "deployed" && (
-        <div className="text-xs tabular-nums text-muted-foreground">
+        <div className="hidden text-xs tabular-nums text-muted-foreground md:block">
           {metrics.length} {metrics.length === 1 ? "metric" : "metrics"}
         </div>
       )}

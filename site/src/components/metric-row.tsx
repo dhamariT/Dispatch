@@ -2,66 +2,37 @@ import { cva } from "class-variance-authority";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  formatMetricValue,
+  getMetricSeverity,
+  getThresholdText,
+  type MetricFormat,
+  type Severity,
+} from "@/lib/severity";
 
-export type MetricSeverity = "critical" | "warning" | "stable" | "neutral";
-
-export interface MetricRowProps {
+export type MetricRowProps = {
   name: string;
   before: number;
   after: number;
-  format?: "percent" | "bytes" | "ms" | "number";
-}
+  format?: MetricFormat;
+};
 
-const THRESHOLDS = {
-  percent: { critical: 5, warning: 2 },
-  number: { critical: 20, warning: 10 },
-} as const;
-
-function formatValue(value: number, format: MetricRowProps["format"]): string {
-  switch (format) {
-    case "percent":
-      return `${value}%`;
-    case "bytes":
-      return `${value}MB`;
-    case "ms":
-      return `${value}ms`;
-    default:
-      return String(value);
-  }
-}
-
-function getSeverity(
-  delta: number,
-  format: MetricRowProps["format"],
-): MetricSeverity {
-  const abs = Math.abs(delta);
-  const t = format === "percent" ? THRESHOLDS.percent : THRESHOLDS.number;
-  if (abs >= t.critical) return "critical";
-  if (abs >= t.warning) return "warning";
-  if (abs > 0) return "stable";
-  return "neutral";
-}
-
-function getThresholdText(format: MetricRowProps["format"]): string {
-  const t = format === "percent" ? THRESHOLDS.percent : THRESHOLDS.number;
-  const unit = format === "percent" ? "%" : format === "bytes" ? "MB" : format === "ms" ? "ms" : "";
-  return `Critical: ±${t.critical}${unit} · Warning: ±${t.warning}${unit}`;
-}
-
-const rowVariants = cva("border-b border-border/40 last:border-b-0 transition-colors relative", {
-  variants: {
-    severity: {
-      critical: "bg-critical-bg/70 hover:bg-critical-bg",
-      warning: "bg-warning-bg/50 hover:bg-warning-bg",
-      stable: "hover:bg-muted/20",
-      neutral: "hover:bg-muted/20",
+const rowVariants = cva(
+  "border-b border-border/40 last:border-b-0 transition-colors relative",
+  {
+    variants: {
+      severity: {
+        critical: "bg-critical-bg/70 hover:bg-critical-bg",
+        warning: "bg-warning-bg/50 hover:bg-warning-bg",
+        stable: "hover:bg-muted/20",
+        neutral: "hover:bg-muted/20",
+      } satisfies Record<Severity, string>,
     },
   },
-});
+);
 
 const deltaVariants = cva(
   "px-5 py-4 text-right text-base font-bold tabular-nums",
@@ -72,7 +43,7 @@ const deltaVariants = cva(
         warning: "text-warning",
         stable: "text-stable",
         neutral: "text-muted-foreground",
-      },
+      } satisfies Record<Severity, string>,
     },
   },
 );
@@ -84,7 +55,7 @@ const afterValueVariants = cva("px-5 py-4 text-sm tabular-nums", {
       warning: "font-semibold text-warning",
       stable: "text-foreground",
       neutral: "text-foreground",
-    },
+    } satisfies Record<Severity, string>,
   },
 });
 
@@ -95,52 +66,77 @@ export function MetricRow({
   format = "number",
 }: MetricRowProps) {
   const delta = after - before;
-  const severity = getSeverity(delta, format);
+  const severity = getMetricSeverity(before, after, format);
   const sign = delta > 0 ? "+" : "";
   const showAccent = severity === "critical" || severity === "warning";
 
   const tooltipLabel =
     severity === "critical"
       ? `Critical regression · ${getThresholdText(format)}`
-      : severity === "warning"
-        ? `Above warning threshold · ${getThresholdText(format)}`
-        : severity === "stable"
-          ? "Within normal range"
-          : "No change";
+      : `Above warning threshold · ${getThresholdText(format)}`;
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <tr className={cn(rowVariants({ severity }))}>
-            <td className="relative px-5 py-4 text-sm font-medium">
-              {showAccent && (
-                <span
-                  className={cn(
-                    "absolute inset-y-0 left-0 w-[3px]",
-                    severity === "critical" && "bg-critical",
-                    severity === "warning" && "bg-warning",
-                  )}
-                />
-              )}
-              {name}
-            </td>
-            <td className="px-5 py-4 text-sm text-muted-foreground tabular-nums">
-              {formatValue(before, format)}
-            </td>
-            <td className={cn(afterValueVariants({ severity }))}>
-              {formatValue(after, format)}
-            </td>
-            <td className={cn(deltaVariants({ severity }))}>
-              {sign}
-              {formatValue(delta, format)}
-            </td>
-          </tr>
-        </TooltipTrigger>
-        <TooltipContent side="top" align="end">
-          <div className="text-xs font-medium">{tooltipLabel}</div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <tr className={cn(rowVariants({ severity }))}>
+      <td className="relative px-5 py-4 text-sm font-medium">
+        {showAccent && (
+          <span
+            className={cn(
+              "absolute inset-y-0 left-0 w-[3px]",
+              severity === "critical" && "bg-critical",
+              severity === "warning" && "bg-warning",
+            )}
+          />
+        )}
+        <span className="inline-flex items-center gap-2">
+          {name}
+          {showAccent && (
+            <Tooltip>
+              <TooltipTrigger
+                render={(props) => (
+                  <button
+                    type="button"
+                    {...props}
+                    className={cn(
+                      "inline-flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-100",
+                      severity === "critical" &&
+                        "text-critical/70 hover:text-critical",
+                      severity === "warning" &&
+                        "text-warning/70 hover:text-warning",
+                    )}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <circle cx="8" cy="8" r="6.5" />
+                      <path d="M8 7v4M8 4.5v.5" strokeLinecap="round" />
+                    </svg>
+                    <span className="sr-only">Threshold info</span>
+                  </button>
+                )}
+              />
+              <TooltipContent side="top" align="start">
+                <div className="text-xs font-medium">{tooltipLabel}</div>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </span>
+      </td>
+      <td className="px-5 py-4 text-sm text-muted-foreground tabular-nums">
+        {formatMetricValue(before, format)}
+      </td>
+      <td className={cn(afterValueVariants({ severity }))}>
+        {formatMetricValue(after, format)}
+      </td>
+      <td className={cn(deltaVariants({ severity }))}>
+        {sign}
+        {formatMetricValue(delta, format)}
+      </td>
+    </tr>
   );
 }

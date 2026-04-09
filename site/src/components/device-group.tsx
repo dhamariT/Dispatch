@@ -1,5 +1,10 @@
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import {
+  countBySeverity,
+  getWorstSeverity,
+  type Severity,
+} from "@/lib/severity";
 import { MetricRow, type MetricRowProps } from "./metric-row";
 import { StatusDot } from "./status-dot";
 
@@ -9,23 +14,10 @@ export interface DeviceGroupProps {
   deviceId: string;
   status: DeviceStatus;
   metrics?: MetricRowProps[];
-}
-
-type Severity = "critical" | "warning" | "stable" | "neutral";
-
-function worstSeverity(metrics: MetricRowProps[]): Severity {
-  let worst: Severity = "neutral";
-  for (const m of metrics) {
-    const delta = Math.abs(m.after - m.before);
-    const isPct = m.format === "percent";
-    if (isPct ? delta >= 5 : delta >= 20) return "critical";
-    if (isPct ? delta >= 2 : delta >= 10) {
-      if (worst !== "critical") worst = "warning";
-    } else if (delta > 0 && worst === "neutral") {
-      worst = "stable";
-    }
-  }
-  return worst;
+  /** When true, only render the metrics table — no card chrome, no
+   * device header. For use inside an already-expanded list item that
+   * already shows the device ID and status. */
+  tableOnly?: boolean;
 }
 
 const sectionVariants = cva(
@@ -37,7 +29,7 @@ const sectionVariants = cva(
         warning: "border-warning/40",
         stable: "border-border",
         neutral: "border-border",
-      },
+      } satisfies Record<Severity, string>,
     },
     defaultVariants: {
       severity: "neutral",
@@ -52,7 +44,7 @@ const edgeVariants = cva("absolute inset-y-0 left-0 w-1", {
       warning: "bg-warning",
       stable: "bg-stable",
       neutral: "bg-border",
-    },
+    } satisfies Record<Severity, string>,
   },
 });
 
@@ -64,14 +56,49 @@ const statusPillVariants = cva(
         deployed: "bg-active-bg text-active",
         waiting: "bg-muted text-muted-foreground",
         offline: "bg-offline-bg text-offline",
-      },
+      } satisfies Record<DeviceStatus, string>,
     },
   },
 );
 
-export function DeviceGroup({ deviceId, status, metrics }: DeviceGroupProps) {
+interface DeviceMetricsTableProps {
+  metrics: MetricRowProps[];
+}
+
+export function DeviceMetricsTable({ metrics }: DeviceMetricsTableProps) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/60">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-border/60 bg-muted/20 text-left text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            <th className="px-5 py-3 font-medium">Metric</th>
+            <th className="px-5 py-3 font-medium">Before</th>
+            <th className="px-5 py-3 font-medium">After</th>
+            <th className="px-5 py-3 text-right font-medium">Delta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {metrics.map((m) => (
+            <MetricRow key={m.name} {...m} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function DeviceGroup({
+  deviceId,
+  status,
+  metrics,
+  tableOnly = false,
+}: DeviceGroupProps) {
   const hasMetrics = status === "deployed" && metrics && metrics.length > 0;
-  const severity: Severity = hasMetrics ? worstSeverity(metrics) : "neutral";
+  const severity: Severity = hasMetrics ? getWorstSeverity(metrics) : "neutral";
+
+  if (tableOnly) {
+    return hasMetrics ? <DeviceMetricsTable metrics={metrics} /> : null;
+  }
 
   const dotVariant =
     status === "deployed"
@@ -93,22 +120,7 @@ export function DeviceGroup({ deviceId, status, metrics }: DeviceGroupProps) {
         ? "Waiting"
         : "Offline";
 
-  const criticalCount = hasMetrics
-    ? metrics.filter((m) => {
-        const d = Math.abs(m.after - m.before);
-        return m.format === "percent" ? d >= 5 : d >= 20;
-      }).length
-    : 0;
-
-  const warningCount = hasMetrics
-    ? metrics.filter((m) => {
-        const d = Math.abs(m.after - m.before);
-        const isPct = m.format === "percent";
-        const crit = isPct ? d >= 5 : d >= 20;
-        const warn = isPct ? d >= 2 : d >= 10;
-        return !crit && warn;
-      }).length
-    : 0;
+  const counts = hasMetrics ? countBySeverity(metrics) : null;
 
   return (
     <section className={cn(sectionVariants({ severity }))}>
@@ -127,39 +139,22 @@ export function DeviceGroup({ deviceId, status, metrics }: DeviceGroupProps) {
           </span>
         </div>
 
-        {severity === "critical" && (
+        {severity === "critical" && counts && (
           <div className="flex items-center gap-2 rounded-md bg-critical-bg px-3 py-1.5 text-sm font-semibold text-critical">
             <StatusDot variant="critical" size="xs" pulse />
-            {criticalCount} critical {criticalCount === 1 ? "regression" : "regressions"}
+            {counts.critical} critical{" "}
+            {counts.critical === 1 ? "regression" : "regressions"}
           </div>
         )}
-        {severity === "warning" && (
+        {severity === "warning" && counts && (
           <div className="flex items-center gap-2 rounded-md bg-warning-bg px-3 py-1.5 text-sm font-semibold text-warning">
             <StatusDot variant="warning" size="xs" />
-            {warningCount} above threshold
+            {counts.warning} above threshold
           </div>
         )}
       </header>
 
-      {hasMetrics && (
-        <div className="overflow-hidden rounded-lg border border-border/60">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-border/60 bg-muted/20 text-left text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Metric</th>
-                <th className="px-5 py-3 font-medium">Before</th>
-                <th className="px-5 py-3 font-medium">After</th>
-                <th className="px-5 py-3 text-right font-medium">Delta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map((m) => (
-                <MetricRow key={m.name} {...m} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {hasMetrics && <DeviceMetricsTable metrics={metrics} />}
     </section>
   );
 }

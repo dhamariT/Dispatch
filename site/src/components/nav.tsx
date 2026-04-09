@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export interface NavProps {
@@ -38,11 +39,7 @@ export function Nav({ fleetName, className }: NavProps) {
       </div>
 
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label="Settings"
-        >
+        <Button variant="ghost" size="icon-sm" aria-label="Settings">
           <svg
             width="16"
             height="16"
@@ -55,7 +52,7 @@ export function Nav({ fleetName, className }: NavProps) {
             <circle cx="8" cy="8" r="2" />
             <path d="M12.5 9.5l1.3.75-1 1.73-1.3-.75a4 4 0 01-1.5.87V13h-2v-1.4a4 4 0 01-1.5-.87l-1.3.75-1-1.73 1.3-.75a4 4 0 010-1.74l-1.3-.75 1-1.73 1.3.75a4 4 0 011.5-.87V3h2v1.4a4 4 0 011.5.87l1.3-.75 1 1.73-1.3.75a4 4 0 010 1.74z" />
           </svg>
-        </button>
+        </Button>
       </div>
     </nav>
   );
