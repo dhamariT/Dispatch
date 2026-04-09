@@ -24,15 +24,12 @@ function formatValue(value: number, format: MetricRowProps["format"]): string {
 
 function getSeverity(delta: number, format: MetricRowProps["format"]): MetricSeverity {
   const abs = Math.abs(delta);
-  // For percent-based metrics, small changes are noise.
   if (format === "percent") {
     if (abs >= 5) return "critical";
     if (abs >= 2) return "warning";
     if (abs > 0) return "stable";
     return "neutral";
   }
-  // For everything else, use relative thresholds later.
-  // Hardcoded for now.
   if (abs >= 20) return "critical";
   if (abs >= 10) return "warning";
   if (abs > 0) return "stable";
@@ -47,28 +44,38 @@ export function MetricRow({ name, before, after, format = "number" }: MetricRowP
   return (
     <tr
       className={cn(
-        "border-b border-border/50",
-        severity === "critical" && "bg-critical-bg",
-        severity === "warning" && "bg-warning-bg",
+        "border-b border-border/40 last:border-b-0 transition-colors",
+        severity === "critical" && "bg-critical-bg/60 hover:bg-critical-bg",
+        severity === "warning" && "bg-warning-bg/50 hover:bg-warning-bg",
+        severity === "stable" && "hover:bg-muted/30",
+        severity === "neutral" && "hover:bg-muted/30",
       )}
     >
-      <td className="px-4 py-2.5 text-sm font-medium">{name}</td>
-      <td className="px-4 py-2.5 text-sm text-muted-foreground tabular-nums">
+      <td className="px-5 py-4 text-sm font-medium">{name}</td>
+      <td className="px-5 py-4 text-sm text-muted-foreground tabular-nums">
         {formatValue(before, format)}
       </td>
-      <td className="px-4 py-2.5 text-sm text-muted-foreground tabular-nums">
+      <td
+        className={cn(
+          "px-5 py-4 text-sm tabular-nums",
+          severity === "critical" && "font-semibold text-critical",
+          severity === "warning" && "font-semibold text-warning",
+          severity !== "critical" && severity !== "warning" && "text-foreground",
+        )}
+      >
         {formatValue(after, format)}
       </td>
       <td
         className={cn(
-          "px-4 py-2.5 text-sm font-medium tabular-nums",
+          "px-5 py-4 text-right text-base font-bold tabular-nums",
           severity === "critical" && "text-critical",
           severity === "warning" && "text-warning",
           severity === "stable" && "text-stable",
           severity === "neutral" && "text-muted-foreground",
         )}
       >
-        {sign}{formatValue(delta, format)}
+        {sign}
+        {formatValue(delta, format)}
       </td>
     </tr>
   );
