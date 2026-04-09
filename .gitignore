@@ -1,0 +1,79 @@
+# OS
+.DS_Store
+**/*.swp
+Thumbs.db
+
+# Editor / IDE
+.idea/
+**/.vscode/*
+!/.vscode/extensions.json
+!/.vscode/settings.json
+!/.vscode/*.code-snippets
+.zed_server
+
+# Go
+bin/
+vendor/
+*.test
+__debug_bin*
+gotests.coverage
+gotests.xml
+gotests.json
+coverage.out
+coverage.html
+
+# Next.js / Frontend
+.next/
+out/
+site/node_modules/
+site/coverage/
+site/storybook-static/
+site/test-results/*
+site/playwright-report/*
+site/e2e/test-results/*
+site/e2e/states/*.json
+site/e2e/.auth.json
+site/.swc
+site/build-storybook.log
+site/stats/
+
+# pnpm
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+build/
+dist/
+tmp/
+dispatchd
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# direnv
+.envrc
+.direnv
+
+# Docker
+docker-compose.override.yml
+
+# Database
+*.sql.bak
+
+# Terraform (if used for infra)
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.lock.hcl
+.terraform/
+
+# Agent planning / local docs
+PLAN.md
+docs/plans/
+AGENTS.local.md
+
+# Claude Code local settings
+**/.claude/settings.local.json
