@@ -5,6 +5,7 @@ import {
   getWorstSeverity,
   type Severity,
 } from "@/lib/severity";
+import { InfoTooltip } from "./info-tooltip";
 import { MetricRow, type MetricRowProps } from "./metric-row";
 import { StatusDot } from "./status-dot";
 
@@ -72,9 +73,33 @@ export function DeviceMetricsTable({ metrics }: DeviceMetricsTableProps) {
         <thead>
           <tr className="border-b border-border/60 bg-muted/20 text-left text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
             <th className="px-5 py-3 font-medium">Metric</th>
-            <th className="px-5 py-3 font-medium">Before</th>
-            <th className="px-5 py-3 font-medium">After</th>
-            <th className="px-5 py-3 text-right font-medium">Delta</th>
+            <th className="px-5 py-3 font-medium">
+              <div className="flex items-center gap-1.5">
+                Before
+                <InfoTooltip
+                  title="Before"
+                  message="The metric value captured just before the deploy was triggered."
+                />
+              </div>
+            </th>
+            <th className="px-5 py-3 font-medium">
+              <div className="flex items-center gap-1.5">
+                After
+                <InfoTooltip
+                  title="After"
+                  message="The metric value captured after the soak period completed."
+                />
+              </div>
+            </th>
+            <th className="px-5 py-3 text-right font-medium">
+              <div className="flex items-center justify-end gap-1.5">
+                Delta
+                <InfoTooltip
+                  title="Delta"
+                  message="The difference between after and before. Red means the metric regressed past the critical threshold, amber means warning."
+                />
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>

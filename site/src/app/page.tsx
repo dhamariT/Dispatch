@@ -1,27 +1,30 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { DemoBanner } from "@/components/demo-banner";
 import { DeployTabs } from "@/components/deploy-tabs";
 import { DeployTopbar } from "@/components/deploy-topbar";
 import { DeviceGroup } from "@/components/device-group";
 import { DeviceListItem } from "@/components/device-list-item";
 import { Nav } from "@/components/nav";
+import { SelfHostCard } from "@/components/self-host-card";
 import { countFleetBySeverity, demoFleet } from "@/lib/demo-data";
 import { getWorstSeverity } from "@/lib/severity";
+import {
+  selectCurrentDeploy,
+  useSimulationStore,
+} from "@/lib/simulation-store";
 
 export default function DashboardPage() {
-  const [selectedDeployId, setSelectedDeployId] = useState(
-    demoFleet.deploys[0].id,
-  );
-  const [expandedDevice, setExpandedDevice] = useState<string | null>("car-2");
+  const deploys = useSimulationStore((s) => s.deploys);
+  const selectedDeployId = useSimulationStore((s) => s.selectedDeployId);
+  const expandedDevice = useSimulationStore((s) => s.expandedDevice);
+  const selectDeploy = useSimulationStore((s) => s.selectDeploy);
+  const toggleExpand = useSimulationStore((s) => s.toggleExpand);
+  const promote = useSimulationStore((s) => s.promote);
+  const rollback = useSimulationStore((s) => s.rollback);
 
-  const selectedDeploy = useMemo(
-    () =>
-      demoFleet.deploys.find((d) => d.id === selectedDeployId) ??
-      demoFleet.deploys[0],
-    [selectedDeployId],
-  );
+  const selectedDeploy = useSimulationStore(selectCurrentDeploy);
 
   const counts = useMemo(
     () => countFleetBySeverity(selectedDeploy.devices),
@@ -43,7 +46,7 @@ export default function DashboardPage() {
     return [...selectedDeploy.devices].sort((a, b) => rank(a) - rank(b));
   }, [selectedDeploy]);
 
-  const deployTabs = demoFleet.deploys.map((d) => ({
+  const deployTabs = deploys.map((d) => ({
     id: d.id,
     from: d.from,
     to: d.to,
@@ -65,6 +68,8 @@ export default function DashboardPage() {
         waiting={counts.waiting}
         offline={counts.offline}
         total={counts.total}
+        onPromote={promote}
+        onRollback={rollback}
       />
 
       <main className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-6 px-8 py-8">
@@ -75,7 +80,7 @@ export default function DashboardPage() {
           <DeployTabs
             deploys={deployTabs}
             selected={selectedDeployId}
-            onSelect={setSelectedDeployId}
+            onSelect={selectDeploy}
           />
         </section>
 
@@ -99,9 +104,7 @@ export default function DashboardPage() {
                     status={device.status}
                     metrics={device.metrics}
                     expanded={isExpanded}
-                    onClick={() =>
-                      setExpandedDevice(isExpanded ? null : device.deviceId)
-                    }
+                    onClick={() => toggleExpand(device.deviceId)}
                   />
                   {isExpanded && device.metrics && (
                     <div className="pl-6 pr-2 pb-2">
@@ -118,6 +121,8 @@ export default function DashboardPage() {
             })}
           </div>
         </section>
+
+        <SelfHostCard className="mt-4" />
       </main>
     </div>
   );

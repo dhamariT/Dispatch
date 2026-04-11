@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { InfoTooltip } from "./info-tooltip";
 import { StatusBadge, type DeployStatus } from "./status-badge";
 import { StatusDot } from "./status-dot";
 import { Topbar, TopbarData, TopbarDivider } from "./topbar";
@@ -41,26 +42,42 @@ export function DeployTopbar({
 
   return (
     <Topbar>
-      <TopbarData
-        label="Deploy"
-        value={
-          <span className="tabular-nums">
-            {from} <span className="text-muted-foreground">→</span> {to}
-          </span>
-        }
-      />
+      <div className="flex items-center gap-1.5 px-2 py-1 text-sm">
+        <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          Deploy
+        </span>
+        <InfoTooltip
+          title="What is a deploy?"
+          message="A deploy is a new release rolled out to your fleet. Dispatch snapshots metrics before and after to show you what changed on each device."
+        />
+        <span className="font-medium tabular-nums text-foreground">
+          {from} <span className="text-muted-foreground">→</span> {to}
+        </span>
+      </div>
 
       <TopbarDivider />
 
-      <StatusBadge status={status} />
+      <div className="flex items-center gap-1.5">
+        <StatusBadge status={status} />
+        <InfoTooltip
+          title={statusHelpTitle(status)}
+          message={statusHelpMessage(status)}
+        />
+      </div>
 
       {soakPct !== null && (
         <>
           <TopbarDivider />
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-wider text-muted-foreground">
-              Soak
-            </span>
+            <div className="flex items-center gap-1">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                Soak
+              </span>
+              <InfoTooltip
+                title="Soak period"
+                message="The wait period after a deploy where Dispatch collects post-deploy metrics. Once complete, you can promote to the next wave."
+              />
+            </div>
             <div className="h-1 w-20 overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-active transition-all"
@@ -103,6 +120,40 @@ export function DeployTopbar({
       </div>
     </Topbar>
   );
+}
+
+function statusHelpTitle(status: DeployStatus): string {
+  switch (status) {
+    case "canary":
+      return "Canary stage";
+    case "soaking":
+      return "Soaking";
+    case "wave2":
+      return "Wave 2";
+    case "wave3":
+      return "Wave 3";
+    case "complete":
+      return "Complete";
+    case "rolledback":
+      return "Rolled back";
+  }
+}
+
+function statusHelpMessage(status: DeployStatus): string {
+  switch (status) {
+    case "canary":
+      return "The canary is the first device to receive this deploy. Dispatch is watching for metric regressions before promoting to the next wave.";
+    case "soaking":
+      return "The canary has been deployed. Dispatch is collecting post-deploy metrics during the soak period. Promote becomes available once soak completes.";
+    case "wave2":
+      return "Wave 2 is the second batch of devices to receive this deploy. It runs after the canary soak completes successfully.";
+    case "wave3":
+      return "Wave 3 is the third batch of devices. It runs after Wave 2 completes successfully.";
+    case "complete":
+      return "Every targeted device has received this deploy and all soak periods completed without regressions.";
+    case "rolledback":
+      return "This deploy was rolled back. Affected devices have been reverted to the previous release version via Balena.";
+  }
 }
 
 type FleetStatVariant =
