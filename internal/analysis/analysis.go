@@ -1,14 +1,15 @@
-package experiment
+// Package analysis is the pure statistical core: Welch's t-test,
+// Cohen's d, and the regression verdict logic. It has no dependency
+// on storage, HTTP, or any other Dispatch package. Anything that
+// wants to compare a canary group to a control group calls Analyze.
+package analysis
 
 import "math"
 
 const (
-	minSampleSize     = 5
-	defaultAlpha      = 0.05
-	minEffectSize     = 0.5
-	effectSizeSmall   = 0.2
-	effectSizeMedium  = 0.5
-	effectSizeLarge   = 0.8
+	minSampleSize = 5
+	defaultAlpha  = 0.05
+	minEffectSize = 0.5
 )
 
 type Verdict string
@@ -29,7 +30,7 @@ const (
 	LowerIsBetter
 )
 
-type AnalysisResult struct {
+type Result struct {
 	MetricName  string    `json:"metric_name"`
 	Direction   Direction `json:"direction"`
 	CanaryMean  float64   `json:"canary_mean"`
@@ -44,8 +45,12 @@ type AnalysisResult struct {
 	Verdict     Verdict   `json:"verdict"`
 }
 
-func Analyze(metricName string, dir Direction, canary, control []float64, alpha float64) AnalysisResult {
-	r := AnalysisResult{MetricName: metricName, Direction: dir}
+// DefaultAlpha is exposed so callers that don't care about custom
+// significance thresholds don't need to know the literal.
+const DefaultAlpha = defaultAlpha
+
+func Analyze(metricName string, dir Direction, canary, control []float64, alpha float64) Result {
+	r := Result{MetricName: metricName, Direction: dir}
 
 	r.CanaryN = len(canary)
 	r.ControlN = len(control)
@@ -74,11 +79,6 @@ func Analyze(metricName string, dir Direction, canary, control []float64, alpha 
 
 	r.Verdict = decide(r.TStatistic, r.PValue, r.EffectSize, dir, alpha)
 	return r
-}
-
-// AnalyzeDefault calls Analyze with the default alpha (0.05).
-func AnalyzeDefault(metricName string, dir Direction, canary, control []float64) AnalysisResult {
-	return Analyze(metricName, dir, canary, control, defaultAlpha)
 }
 
 func meanStddev(xs []float64) (float64, float64) {
