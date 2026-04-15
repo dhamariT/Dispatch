@@ -42,7 +42,7 @@ Only pause to ask for confirmation when:
 
 # General
 
-Dispatch is a deployment diffing system for IoT device fleets. It orchestrates staged rollouts via Balena, snapshots per-device metrics before and after each deploy, and shows you exactly what changed on which device.
+Dispatch is a causal deploy validation system for IoT device fleets. When a release rolls out, Dispatch runs a concurrent canary-vs-control experiment: some devices get the new release, the rest stay on the current one, and Dispatch compares per-device metrics with a statistical engine (Welch's t-test + Cohen's d) to decide whether the deploy is safe to promote or should be held.
 
 Keep changes low impact, responses concise. No summaries, no testing. Reference the existing codebase for style consistency. Read all context carefully before making changes — code may be manually modified between messages; do not suggest code that has been deleted or is no longer relevant. If asked to change feature requirements, update all previous implementations to match. Always ask questions when needed.
 
@@ -52,49 +52,45 @@ Detailed architecture docs live in Claude Code's memory system. Before working o
 
 # Stack
 
-Go (backend API, rollout engine, snapshot diffing), TypeScript + Next.js (frontend dashboard), PostgreSQL + TimescaleDB (metrics storage). Only suggest changes applicable to these technologies. Prefer CLI-generated boilerplate over manual file creation — you can always modify generated output.
+Go (backend: `dispatchd` binary containing the HTTP API, experiment engine, statistical analysis, and simulation), TypeScript + Next.js (frontend dashboard), Chi router, in-memory store. Only suggest changes applicable to these technologies. Prefer CLI-generated boilerplate over manual file creation — you can always modify generated output.
+
+Postgres + TimescaleDB, a device-side agent, and Balena integration are on the roadmap but **not yet implemented**. Do not import them, reference them as if they exist, or add migrations for tables that don't exist. If a task requires persistence, ask first.
 
 ## Access Control
 
-Dispatch has two levels of trust in the distributed system:
+Dispatch's distributed-system trust model is designed but not yet enforced in code (no auth middleware, no API keys, no device agent yet). The intended levels are:
 
-- **Operator** — authenticated user on the dashboard. Can trigger deploys, view diffs, manage fleet. API key scoped to their Dispatch instance.
-- **Device agent** — runs on each fleet device. Authenticates to the Dispatch API via `DISPATCH_API_KEY`. Can only push metrics and read its own device config.
+- **Operator** — authenticated user on the dashboard. Triggers experiments, views verdicts, overrides decisions.
+- **Device agent** — runs on each fleet device, pushes metric samples for its own device only.
 
-Follow the principle of least privilege: agents should never access other devices' data or trigger deploys. When in doubt, deny access.
+Follow the principle of least privilege when adding new endpoints or agent behavior. When in doubt, deny access. If you touch `/api/metrics` or add new agent-facing routes, leave an inline comment explaining what the eventual auth boundary looks like.
 
 Don't use `git push --force` unless explicitly requested.
 
-### New Feature Checklist
-
-- [ ] Run `git pull` to ensure latest code
-- [ ] Check if feature touches database - you'll need migrations
-- [ ] Check if feature touches audit logs - update `enterprise/audit/table.go`
-
 ## Architecture
 
-Dispatch is a distributed system split across two boundaries: the server and the fleet.
+Dispatch is a single Go binary (`dispatchd`) plus a Next.js dashboard. There is no fleet side yet — the simulation package stands in for real devices.
 
-**Server-side (`dispatchd`)** — single Go binary, multiple internal subsystems:
-- **API** (`api/`) — REST endpoints. Receives metrics from device agents, serves the Next.js dashboard, handles deploy triggers.
-- **Rollout** (`rollout/`) — canary selection, soak timers, wave promotion. Calls Balena API to pin devices to releases.
-- **Snapshot** (`snapshot/`) — the core of Dispatch. Captures per-device metrics before and after a deploy, diffs them.
-- **Fleet** (`fleet/`) — polls Balena cloud API for device vitals (CPU, memory, temp, storage). Merges with custom metrics from agents.
+**Server — `cmd/dispatchd/main.go`:** Chi router wiring REST endpoints for experiments (`POST/GET /api/experiments`, `/{id}/analyze`, `/{id}/promote`, `/{id}/hold`), metric ingest (`POST /api/metrics`), and simulation control (`GET /api/simulation/scenarios`, `POST /api/simulation/run`). No middleware beyond CORS.
 
-**Device-side (`dispatch-agent`)** — lightweight container running on each fleet device:
-- Reads metrics from the user's app (shared volume, local file, socket).
-- Pushes them to `dispatchd` via authenticated HTTP.
-- Has no knowledge of rollouts, diffs, or other devices.
+**`internal/experiment/`** — the core.
+- `experiment.go` — the `Experiment` type, lifecycle states (`Collecting` → `Analyzing` → `Decided`), manual override methods (`ManualPromote`, `ManualHold`), per-metric direction (`HigherIsBetter` / `LowerIsBetter`).
+- `analysis.go` — Welch's unequal-variances t-test, Cohen's d, and the regularized incomplete beta function via Lentz's continued fraction. Dual-gate decision: regression requires **both** `p < 0.05` **and** `|d| ≥ 0.5`. No external stats library.
+- `store.go` — thread-safe in-memory `Store` guarded by `sync.RWMutex`. Holds experiments keyed by ID.
 
-**Storage** — PostgreSQL + TimescaleDB. Snapshots are append-only. Diffs are derived, never stored.
+**`internal/metric/sample.go`** — the `Sample` struct and `Group` enum (`Canary` / `Control`) used by the ingest endpoint.
 
-**External** — Balena cloud API. Dispatch reads device vitals and writes release pins. Dispatch does not own OTA delivery — Balena does.
+**`internal/simulation/`** — `scenarios.go` defines exactly four scenarios (`lidar_regression`, `healthy_deploy`, `noisy_but_safe`, `slow_regression`), each targeting a specific edge of the decision logic. `generator.go` produces synthetic metric streams with controlled distributions.
+
+**Frontend — `site/`:** Next.js 16 App Router. `site/src/app/page.tsx` is the experiment dashboard. Talks to `dispatchd` over the REST API, renders per-metric canary-vs-control comparisons (mean ± SD, p-value, effect size), overall verdict, and promote/hold override buttons.
+
+**Not yet implemented (roadmap):** Postgres/TimescaleDB persistence, the `dispatch-agent` sidecar, Balena cloud API integration, wave-based rollout orchestration (canary selection, soak timers, wave promotion), auth. Don't write code that assumes any of these exist.
 
 # Data Handling
 
 Data must be preservable and reversible. When deleting data, always ask whether it should be soft-deleted or permanently destroyed — never assume either. The developer decides each time.
 
-Metric snapshots are append-only — never mutate historical snapshot data. Store each snapshot as an immutable record tied to a device ID, deploy ID, and timestamp. Derive diffs by comparing snapshots, not by storing computed deltas.
+Metric samples are append-only within an experiment — never mutate samples that have already been ingested. Each sample is an immutable record tied to an experiment ID, device ID, metric name, group (canary/control), and value. Verdicts are computed by running the analysis engine over the collected samples, not by storing precomputed diffs.
 
 ### Timing Issues
 
@@ -110,7 +106,7 @@ NEVER use `time.Sleep` to mitigate timing issues. If something seems like it nee
 - When you use a scope, it must be a real filesystem path containing every
   changed file.
 - Use a broader path scope, or omit the scope, for cross-cutting changes.
-- Example: `fix(api/snapshot): ...` for changes only in `api/snapshot/`.
+- Example: `fix(internal/experiment): ...` for changes only in `internal/experiment/`.
 
 ### Frontend Patterns
 
