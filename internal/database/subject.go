@@ -94,15 +94,18 @@ func RequireOperator(ctx context.Context) error {
 	subj, ok := SubjectFromContext(ctx)
 	if !ok {
 		// No subject means the auth middleware was skipped, which
-		// is a routing bug. Return Unauthorized so it surfaces as
-		// a 401 instead of silently succeeding.
+		// is a routing bug. Return ErrUnauthorized so writeStoreErr
+		// maps it to 403: unauthenticated requests never reach this
+		// layer (the auth middleware 401s them first), so a
+		// subject-less call here is a programming bug that we
+		// refuse rather than a user auth failure.
 		return fmt.Errorf("%w: missing subject", ErrUnauthorized)
 	}
 	if subj.Type == SubjectSystem {
 		// The system subject is the bootstrap escape hatch and must
-		// never reach a request handler. Treating it as denied here
+		// never reach a request handler. Treating it as denied
 		// turns a "system principal leaked into an HTTP path" bug
-		// into a loud 401 instead of a silent privilege escalation.
+		// into a loud 403 instead of a silent privilege escalation.
 		return fmt.Errorf("%w: system subject not allowed in handlers", ErrUnauthorized)
 	}
 	if subj.Type != SubjectOperator {

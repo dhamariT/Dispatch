@@ -44,8 +44,12 @@ func Run(
 	canary := devices[:1]
 	control := devices[1:]
 
+	// UnixNano keeps two back-to-back runs of the same scenario from
+	// colliding at the "exp-{deploy_id}" uniqueness check in memstore.
+	// HHMMSS alone collides on two clicks in the same second, which
+	// is trivially reproducible through the dashboard.
 	exp, err := store.CreateExperiment(opCtx, database.CreateExperimentParams{
-		DeployID:       scenarioName + "-" + time.Now().Format("150405"),
+		DeployID:       fmt.Sprintf("%s-%d", scenarioName, time.Now().UnixNano()),
 		CanaryDevices:  canary,
 		ControlDevices: control,
 		WindowMinutes:  5,
@@ -73,13 +77,13 @@ func Run(
 
 	switch scenarioName {
 	case "lidar_regression":
-		err = injectLidarRegression(store, agentSubjects, rng, exp.ID, canary, control)
+		err = injectLidarRegression(opCtx, store, agentSubjects, rng, exp.ID, canary, control)
 	case "healthy_deploy", "":
-		err = injectHealthy(store, agentSubjects, rng, exp.ID, canary, control)
+		err = injectHealthy(opCtx, store, agentSubjects, rng, exp.ID, canary, control)
 	case "noisy_but_safe":
-		err = injectNoisy(store, agentSubjects, rng, exp.ID, canary, control)
+		err = injectNoisy(opCtx, store, agentSubjects, rng, exp.ID, canary, control)
 	case "slow_regression":
-		err = injectSlowRegression(store, agentSubjects, rng, exp.ID, canary, control)
+		err = injectSlowRegression(opCtx, store, agentSubjects, rng, exp.ID, canary, control)
 	default:
 		return database.Experiment{}, fmt.Errorf("%w: unknown scenario %q", database.ErrInvalidArgument, scenarioName)
 	}
@@ -90,65 +94,66 @@ func Run(
 	return store.AnalyzeExperiment(opCtx, exp.ID)
 }
 
-func injectLidarRegression(store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
+func injectLidarRegression(ctx context.Context, store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
 	// LiDAR accuracy: control stays high, canary drops.
-	if err := injectMetric(store, subs, rng, expID, "lidar_accuracy", canary, 91.5, 1.2, control, 98.0, 0.3); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "lidar_accuracy", canary, 91.5, 1.2, control, 98.0, 0.3); err != nil {
 		return err
 	}
 	// CPU: canary runs hotter from the bad code.
-	if err := injectMetric(store, subs, rng, expID, "cpu_usage", canary, 48.0, 3.0, control, 33.0, 2.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "cpu_usage", canary, 48.0, 3.0, control, 33.0, 2.0); err != nil {
 		return err
 	}
 	// Memory: similar across both groups.
-	if err := injectMetric(store, subs, rng, expID, "memory_mb", canary, 415.0, 8.0, control, 412.0, 7.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "memory_mb", canary, 415.0, 8.0, control, 412.0, 7.0); err != nil {
 		return err
 	}
 	// Fusion latency: canary slightly worse.
-	return injectMetric(store, subs, rng, expID, "fusion_latency_ms", canary, 14.0, 1.5, control, 12.0, 1.0)
+	return injectMetric(ctx, store, subs, rng, expID, "fusion_latency_ms", canary, 14.0, 1.5, control, 12.0, 1.0)
 }
 
-func injectHealthy(store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
-	if err := injectMetric(store, subs, rng, expID, "lidar_accuracy", canary, 98.0, 0.4, control, 98.0, 0.4); err != nil {
+func injectHealthy(ctx context.Context, store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
+	if err := injectMetric(ctx, store, subs, rng, expID, "lidar_accuracy", canary, 98.0, 0.4, control, 98.0, 0.4); err != nil {
 		return err
 	}
-	if err := injectMetric(store, subs, rng, expID, "cpu_usage", canary, 33.0, 2.5, control, 33.0, 2.5); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "cpu_usage", canary, 33.0, 2.5, control, 33.0, 2.5); err != nil {
 		return err
 	}
-	if err := injectMetric(store, subs, rng, expID, "memory_mb", canary, 412.0, 8.0, control, 412.0, 8.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "memory_mb", canary, 412.0, 8.0, control, 412.0, 8.0); err != nil {
 		return err
 	}
-	return injectMetric(store, subs, rng, expID, "fusion_latency_ms", canary, 12.0, 1.2, control, 12.0, 1.2)
+	return injectMetric(ctx, store, subs, rng, expID, "fusion_latency_ms", canary, 12.0, 1.2, control, 12.0, 1.2)
 }
 
-func injectNoisy(store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
+func injectNoisy(ctx context.Context, store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
 	// High stddev on everything — means are identical, data is wild.
-	if err := injectMetric(store, subs, rng, expID, "lidar_accuracy", canary, 98.0, 3.0, control, 98.0, 3.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "lidar_accuracy", canary, 98.0, 3.0, control, 98.0, 3.0); err != nil {
 		return err
 	}
-	if err := injectMetric(store, subs, rng, expID, "cpu_usage", canary, 33.0, 8.0, control, 33.0, 8.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "cpu_usage", canary, 33.0, 8.0, control, 33.0, 8.0); err != nil {
 		return err
 	}
-	if err := injectMetric(store, subs, rng, expID, "memory_mb", canary, 412.0, 20.0, control, 412.0, 20.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "memory_mb", canary, 412.0, 20.0, control, 412.0, 20.0); err != nil {
 		return err
 	}
-	return injectMetric(store, subs, rng, expID, "fusion_latency_ms", canary, 12.0, 4.0, control, 12.0, 4.0)
+	return injectMetric(ctx, store, subs, rng, expID, "fusion_latency_ms", canary, 12.0, 4.0, control, 12.0, 4.0)
 }
 
-func injectSlowRegression(store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
-	if err := injectMetric(store, subs, rng, expID, "lidar_accuracy", canary, 98.0, 0.4, control, 98.0, 0.4); err != nil {
+func injectSlowRegression(ctx context.Context, store database.Store, subs map[string]database.Subject, rng *rand.Rand, expID string, canary, control []string) error {
+	if err := injectMetric(ctx, store, subs, rng, expID, "lidar_accuracy", canary, 98.0, 0.4, control, 98.0, 0.4); err != nil {
 		return err
 	}
-	if err := injectMetric(store, subs, rng, expID, "memory_mb", canary, 412.0, 8.0, control, 412.0, 8.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "memory_mb", canary, 412.0, 8.0, control, 412.0, 8.0); err != nil {
 		return err
 	}
 	// CPU: small regression, borderline significance with moderate variance.
-	if err := injectMetric(store, subs, rng, expID, "cpu_usage", canary, 35.5, 3.0, control, 33.0, 3.0); err != nil {
+	if err := injectMetric(ctx, store, subs, rng, expID, "cpu_usage", canary, 35.5, 3.0, control, 33.0, 3.0); err != nil {
 		return err
 	}
-	return injectMetric(store, subs, rng, expID, "fusion_latency_ms", canary, 12.0, 1.2, control, 12.0, 1.2)
+	return injectMetric(ctx, store, subs, rng, expID, "fusion_latency_ms", canary, 12.0, 1.2, control, 12.0, 1.2)
 }
 
 func injectMetric(
+	parent context.Context,
 	store database.Store,
 	subs map[string]database.Subject,
 	rng *rand.Rand,
@@ -159,7 +164,7 @@ func injectMetric(
 ) error {
 	now := time.Now()
 	for _, d := range canary {
-		ctx, err := agentCtx(subs, d)
+		ctx, err := agentCtx(parent, subs, d)
 		if err != nil {
 			return err
 		}
@@ -177,7 +182,7 @@ func injectMetric(
 		}
 	}
 	for _, d := range control {
-		ctx, err := agentCtx(subs, d)
+		ctx, err := agentCtx(parent, subs, d)
 		if err != nil {
 			return err
 		}
@@ -197,14 +202,21 @@ func injectMetric(
 	return nil
 }
 
-// agentCtx returns a context whose subject is the agent for the
-// given device. The simulation handler must have bootstrapped agent
-// subjects for every device referenced by a scenario; a missing
-// entry is a programming error, not a runtime user error.
-func agentCtx(subs map[string]database.Subject, deviceID string) (context.Context, error) {
+// agentCtx returns a context derived from parent (the operator's
+// request context) but with the subject replaced by the given
+// device's agent. Using the parent preserves request-scoped values,
+// cancellation, and deadlines — so if the operator cancels
+// POST /api/simulation/run mid-run, sample inserts stop promptly
+// instead of churning on in the background. Only the Subject is
+// swapped; every other context value passes through.
+//
+// A missing entry in subs is a programming error (the simulation
+// handler bootstraps one agent subject per known device), not a
+// runtime user error.
+func agentCtx(parent context.Context, subs map[string]database.Subject, deviceID string) (context.Context, error) {
 	subj, ok := subs[deviceID]
 	if !ok {
 		return nil, fmt.Errorf("simulation: no agent subject for device %s", deviceID)
 	}
-	return database.WithSubject(context.Background(), subj), nil
+	return database.WithSubject(parent, subj), nil
 }

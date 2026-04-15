@@ -1,8 +1,13 @@
 // Package dbaudit wraps a database.Store and writes an audit_log
-// entry for every mutating operator action. Reads are not audited
-// (too noisy) and sample inserts are not audited (too high-volume,
-// and they're already attributable via the agent's API key on the
-// underlying sample row).
+// entry for every mutating operator action. Three kinds of calls
+// are deliberately NOT audited:
+//   - Reads: too noisy to be useful.
+//   - Sample inserts: too high-volume, and they're already
+//     attributable via the agent's API key on the sample row.
+//   - Calls made under the system subject (bootstrap path):
+//     the audit log answers "which principal did this," and the
+//     system subject is the absence of one. Bootstrap activity
+//     is visible via slog entries in cmd/dispatchd.bootstrap.
 //
 // Audit entries are written AFTER the underlying operation succeeds,
 // so a failed write doesn't leave a phantom audit row. If the audit
@@ -31,10 +36,20 @@ func New(inner database.Store, log *slog.Logger) *Store {
 // propagate, since the user-visible operation already succeeded.
 // The slog warning is the breadcrumb a future operator would use
 // to detect that the audit log has gone silent.
+//
+// Calls made under the system subject (bootstrap path) are not
+// audited. A row attributed to subject_id="system" is noise — the
+// audit log is supposed to answer "which authenticated principal
+// did this," and the system subject is specifically the absence
+// of one. Bootstrap activity has its own visibility via the slog
+// entries in cmd/dispatchd.bootstrap.
 func (s *Store) audit(ctx context.Context, action, targetType, targetID string, metadata map[string]any) {
 	subj, ok := database.SubjectFromContext(ctx)
 	if !ok {
 		s.log.Warn("dbaudit: no subject on context, skipping entry", "action", action)
+		return
+	}
+	if subj.Type == database.SubjectSystem {
 		return
 	}
 	_, err := s.inner.InsertAuditEntry(ctx, database.InsertAuditEntryParams{

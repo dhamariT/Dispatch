@@ -56,9 +56,11 @@ func (s *Store) authorize(ctx context.Context, action string, check func(databas
 	subj, ok := database.SubjectFromContext(ctx)
 	if !ok {
 		// A Store call with no subject means a handler skipped the
-		// auth middleware. That's a bug, not anonymous access, but
-		// we return Unauthorized so the bug surfaces as a 401 rather
-		// than silently allowing the call.
+		// auth middleware. That's a bug, not anonymous access —
+		// unauthenticated requests get 401'd by the middleware
+		// before they ever reach dbauthz. Return ErrUnauthorized
+		// so writeStoreErr maps it to 403: the bug surfaces as
+		// a loud refusal instead of a silently allowed call.
 		return fmt.Errorf("%w: %s requires an authenticated subject", database.ErrUnauthorized, action)
 	}
 	// The system subject is the auth middleware bootstrap escape

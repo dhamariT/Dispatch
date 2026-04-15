@@ -79,10 +79,13 @@ type bootstrapResult struct {
 	agentSubjects map[string]database.Subject
 }
 
-// bootstrap mints an operator key and one agent key per simulated
-// device on first run, then prints the plaintext to stdout exactly
-// once. In a real deployment these would be generated through an
-// admin CLI and stored out-of-band; for the simulation we print
+// bootstrap mints a fresh operator key and one agent key per
+// simulated device on every process start, and prints the plaintext
+// to stdout. Because the backing store is in-memory, there is no
+// "first run" — every restart begins with an empty store, so keys
+// from the previous run are gone and new ones are issued. In a real
+// deployment with a durable store these would be generated through
+// an admin CLI and stored out-of-band; for the simulation we print
 // them so the dashboard and the simulation handler have something
 // to authenticate with.
 func bootstrap(log *slog.Logger, store database.Store) (bootstrapResult, error) {
@@ -99,8 +102,10 @@ func bootstrap(log *slog.Logger, store database.Store) (bootstrapResult, error) 
 		return bootstrapResult{}, err
 	}
 	log.Info("bootstrap operator key minted", "id", opKey.ID)
-	// The plaintext is shown exactly once and never again. A fresh
-	// key has to be minted to recover from a lost operator token.
+	// The plaintext is shown on stdout once per process start and
+	// not persisted anywhere else; the store keeps only the hash.
+	// Recover from a lost token by restarting dispatchd, which
+	// mints a brand-new key and invalidates the old one.
 	os.Stdout.WriteString("OPERATOR API KEY: " + opPlaintext + "\n")
 
 	// Step 2: switch to the operator subject so the rest of the
