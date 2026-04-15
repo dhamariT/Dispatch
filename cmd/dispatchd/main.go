@@ -371,7 +371,18 @@ func listAudit(store database.Store) http.HandlerFunc {
 }
 
 func adminMetrics(metrics *dbmetrics.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// dbmetrics.Snapshot is a concrete-type method, not a Store
+		// interface call, so the dbauthz wrapper never sees it.
+		// Without this explicit guard any authenticated agent could
+		// read server-wide method counts and latency histograms,
+		// which leaks operator activity timing patterns and is the
+		// exact cross-tenant boundary the architecture is supposed
+		// to prevent.
+		if err := database.RequireOperator(r.Context()); err != nil {
+			writeStoreErr(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, metrics.Snapshot())
 	}
 }

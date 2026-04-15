@@ -1,6 +1,9 @@
 package database
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // SubjectType identifies which kind of caller is making a Store
 // request. The dbauthz wrapper switches on this value to decide
@@ -73,4 +76,37 @@ func WithSubject(ctx context.Context, s Subject) context.Context {
 func SubjectFromContext(ctx context.Context) (Subject, bool) {
 	s, ok := ctx.Value(subjectKey{}).(Subject)
 	return s, ok
+}
+
+// RequireOperator is the explicit guard for HTTP endpoints that do
+// not route through the Store interface and therefore cannot be
+// gated by the dbauthz wrapper. The canonical case is observability
+// endpoints (e.g. the dbmetrics snapshot) whose data lives on a
+// concrete wrapper type, not on a Store row.
+//
+// Every such endpoint MUST call RequireOperator before doing any
+// work. Without it, the auth middleware admits any valid API key —
+// including agents — and the handler leaks operator-only data. This
+// helper exists precisely so that the guard is one line and looks
+// the same everywhere, instead of being reinvented (and forgotten)
+// per handler.
+func RequireOperator(ctx context.Context) error {
+	subj, ok := SubjectFromContext(ctx)
+	if !ok {
+		// No subject means the auth middleware was skipped, which
+		// is a routing bug. Return Unauthorized so it surfaces as
+		// a 401 instead of silently succeeding.
+		return fmt.Errorf("%w: missing subject", ErrUnauthorized)
+	}
+	if subj.Type == SubjectSystem {
+		// The system subject is the bootstrap escape hatch and must
+		// never reach a request handler. Treating it as denied here
+		// turns a "system principal leaked into an HTTP path" bug
+		// into a loud 401 instead of a silent privilege escalation.
+		return fmt.Errorf("%w: system subject not allowed in handlers", ErrUnauthorized)
+	}
+	if subj.Type != SubjectOperator {
+		return fmt.Errorf("%w: requires operator", ErrUnauthorized)
+	}
+	return nil
 }

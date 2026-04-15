@@ -253,6 +253,48 @@ the type system enforcing the architecture — that's a feature.
 5. If the entity is auditable, decide which mutations should produce
    audit entries. Don't audit reads. Don't audit high-volume writes.
 
+### Adding an HTTP endpoint that does NOT route through the Store
+
+Almost every handler in dispatchd takes a `database.Store` argument
+and gets its authorization for free, because dbauthz wraps every
+Store method. Some handlers don't have a Store call to make —
+notably observability endpoints like `/api/admin/metrics`, which
+read from a concrete wrapper type (`*dbmetrics.Store`) instead of a
+data row. Those handlers sit **outside** the dbauthz wrapper.
+
+If you don't add an explicit guard, any authenticated principal —
+including device agents — can hit them. That's exactly the
+cross-tenant leak the layered architecture is supposed to prevent.
+
+The rule: **every handler that does not call a Store method must
+call `database.RequireOperator(ctx)` (or a stricter check) before
+doing any work.**
+
+```go
+func adminMetrics(metrics *dbmetrics.Store) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        // Required: this handler reads dbmetrics state directly,
+        // not via the Store interface, so dbauthz can't gate it.
+        if err := database.RequireOperator(r.Context()); err != nil {
+            writeStoreErr(w, err)
+            return
+        }
+        writeJSON(w, http.StatusOK, metrics.Snapshot())
+    }
+}
+```
+
+`RequireOperator` lives next to `SubjectFromContext` in
+[subject.go](../../internal/database/subject.go). It rejects missing
+subjects, the system subject (which must never escape the auth
+middleware), and any non-operator principal.
+
+If you find yourself needing finer-grained control here ("agents
+allowed, but only for their own device"), don't reinvent dbauthz in
+the handler. Either move the underlying data behind a Store method
+so the existing wrapper layer fires, or write a sibling helper next
+to `RequireOperator` and document the rule that justifies it.
+
 ### Adding a new wrapper
 
 You probably won't need one, but if you do (e.g., a `dbcache` for

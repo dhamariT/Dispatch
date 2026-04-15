@@ -24,6 +24,13 @@
 // exists. Per AGENTS.md, removing one would silently change access,
 // so the comment is the breadcrumb that keeps a future reader from
 // "cleaning up" a check they don't understand.
+//
+// Note on coverage: dbauthz only protects calls that go through the
+// Store interface. Observability endpoints that read from concrete
+// wrapper types (the canonical case is the dbmetrics snapshot exposed
+// at /api/admin/metrics) sit outside this layer and must call
+// database.RequireOperator explicitly. See the recipe in
+// .claude/docs/DATABASE.md.
 package dbauthz
 
 import (
