@@ -388,7 +388,18 @@ func adminMetrics(metrics *dbmetrics.Store) http.HandlerFunc {
 }
 
 func listScenarios() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// simulation.Scenarios is a static slice, not a Store row,
+		// so dbauthz never sees this call. Without the guard, any
+		// authenticated agent can enumerate the simulation surface
+		// and learn scenario names, which is the same class of
+		// cross-tenant leak adminMetrics had. The rule documented
+		// in .claude/docs/DATABASE.md is explicit: every handler
+		// that does not route through Store must call RequireOperator.
+		if err := database.RequireOperator(r.Context()); err != nil {
+			writeStoreErr(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, simulation.Scenarios)
 	}
 }
