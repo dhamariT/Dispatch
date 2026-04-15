@@ -26,18 +26,20 @@ const (
 )
 
 type Experiment struct {
-	mu sync.RWMutex
+	// Pointer so Snapshot() can return by value without copying
+	// the lock (vet: copylocks).
+	mu *sync.RWMutex
 
-	ID             string            `json:"id"`
-	DeployID       string            `json:"deploy_id"`
-	Status         Status            `json:"status"`
-	Decision       Decision          `json:"decision,omitzero"`
-	HoldReason     string            `json:"hold_reason,omitzero"`
-	CanaryDevices  []string          `json:"canary_devices"`
-	ControlDevices []string          `json:"control_devices"`
-	WindowMinutes  int               `json:"window_minutes"`
-	StartedAt      time.Time         `json:"started_at"`
-	Results        []AnalysisResult  `json:"results,omitzero"`
+	ID             string           `json:"id"`
+	DeployID       string           `json:"deploy_id"`
+	Status         Status           `json:"status"`
+	Decision       Decision         `json:"decision,omitzero"`
+	HoldReason     string           `json:"hold_reason,omitzero"`
+	CanaryDevices  []string         `json:"canary_devices"`
+	ControlDevices []string         `json:"control_devices"`
+	WindowMinutes  int              `json:"window_minutes"`
+	StartedAt      time.Time        `json:"started_at"`
+	Results        []AnalysisResult `json:"results,omitzero"`
 
 	// samples maps metric_name → group → values.
 	samples    map[string]map[metric.Group][]float64
@@ -46,6 +48,7 @@ type Experiment struct {
 
 func New(id, deployID string, canary, control []string, windowMinutes int) *Experiment {
 	return &Experiment{
+		mu:             &sync.RWMutex{},
 		ID:             id,
 		DeployID:       deployID,
 		Status:         Collecting,

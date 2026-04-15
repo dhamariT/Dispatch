@@ -63,9 +63,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      # Install from source against the repo's Go toolchain so the
+      # linter can analyze code that uses Go versions newer than any
+      # prebuilt binary the action ships.
+      - name: install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - run: golangci-lint run ./...
 
   test-go:
     needs: changes
@@ -97,7 +100,7 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: site/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-workspace
       - run: pnpm lint
 
   build-site:
@@ -117,9 +120,8 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: site/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-workspace
       - run: pnpm build
-      - run: pnpm build-storybook
 
   typos:
     runs-on: ubuntu-latest

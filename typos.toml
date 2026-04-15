@@ -1,0 +1,4 @@
+[default.extend-words]
+# Third-party font family name, not ours to rename.
+# https://int-dev.s3.../Web437-Pheonix-EGA-8X8-2Y.woff
+Pheonix = "Pheonix"

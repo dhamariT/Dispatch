@@ -103,26 +103,30 @@ func injectMetric(
 	now := time.Now()
 	for _, d := range canary {
 		for _, v := range Stream(rng, canaryMean, canarySD, samplesPerDevice) {
-			e.AddSample(metric.Sample{
+			if err := e.AddSample(metric.Sample{
 				ExperimentID: e.ID,
 				DeviceID:     d,
 				MetricName:   name,
 				Value:        v,
 				Timestamp:    now,
 				Group:        metric.Canary,
-			})
+			}); err != nil {
+				panic(err)
+			}
 		}
 	}
 	for _, d := range control {
 		for _, v := range Stream(rng, controlMean, controlSD, samplesPerDevice) {
-			e.AddSample(metric.Sample{
+			if err := e.AddSample(metric.Sample{
 				ExperimentID: e.ID,
 				DeviceID:     d,
 				MetricName:   name,
 				Value:        v,
 				Timestamp:    now,
 				Group:        metric.Control,
-			})
+			}); err != nil {
+				panic(err)
+			}
 		}
 	}
 }

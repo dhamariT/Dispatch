@@ -3,12 +3,12 @@ package experiment
 import "math"
 
 const (
-	minSampleSize     = 5
-	defaultAlpha      = 0.05
-	minEffectSize     = 0.5
-	effectSizeSmall   = 0.2
-	effectSizeMedium  = 0.5
-	effectSizeLarge   = 0.8
+	minSampleSize    = 5
+	defaultAlpha     = 0.05
+	minEffectSize    = 0.5
+	effectSizeSmall  = 0.2
+	effectSizeMedium = 0.5
+	effectSizeLarge  = 0.8
 )
 
 type Verdict string
