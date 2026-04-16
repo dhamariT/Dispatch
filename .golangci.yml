@@ -7,3 +7,5 @@ linters-settings:
       - (*encoding/json.Encoder).Encode
       # Only returns on server shutdown; main returns immediately after.
       - net/http.ListenAndServe
+      # Since Go 1.24 crypto/rand.Read always returns nil.
+      - crypto/rand.Read
