@@ -1,11 +1,11 @@
 # Database Layer
 
 This doc describes how persistence works in Dispatch. The layer is
-intentionally narrow: a single Go interface, an in-memory backing
-implementation, three decorator wrappers, no Postgres, no migrations.
-That choice is load-bearing — it's what lets the simulation stay
-fast and what lets every test run in-process — so before you add
-anything here, understand what's already in place and why.
+intentionally narrow: a single Go interface, two backing
+implementations (in-memory and Postgres), and three decorator
+wrappers. The in-memory store keeps the simulation fast and lets
+tests run in-process; the Postgres store adds durability when
+`DISPATCH_DATABASE_URL` is set.
 
 For testing-specific guidance see [docs/TESTING.md](../../docs/TESTING.md).
 
@@ -17,8 +17,8 @@ At runtime that interface is a stack of decorators wrapping an
 in-memory backing implementation:
 
 ```
-handler → dbauthz → dbaudit → dbmetrics → memstore
-            RBAC     audit     latency      backing
+handler → dbauthz → dbaudit → dbmetrics → memstore OR pgstore
+            RBAC     audit     latency       backing
 ```
 
 The wrappers compose at startup in [cmd/dispatchd/main.go](../../cmd/dispatchd/main.go).
@@ -28,19 +28,26 @@ authz layer load-bearing instead of decorative: a future endpoint
 that forgets to authorize a call has nowhere to fall through, because
 the underlying store is unreachable except through the wrapper chain.
 
-## Why no Postgres
+## Backing store selection
 
-Dispatch is simulation-based. There is no real fleet, no production
-data to durable, no need for cross-process state. The in-memory store
-is microsecond-fast (smoke-tested at p99 = 1µs across the full
-wrapper stack for `InsertSample`), which is the SRE story we want to
-preserve. Swapping the backing for Postgres + sqlc is a separate
-refactor that the `Store` interface already isolates: the wrappers
-and handlers wouldn't change.
+Set `DISPATCH_DATABASE_URL` to a Postgres connection string to use
+the durable Postgres backing. When unset, dispatchd falls back to
+the in-memory store — same behavior as before, no external deps
+needed for the simulation.
 
-If/when that swap happens, the migration tooling, sqlc setup, and
-`dbtestutil.WillUsePostgres`-style helpers go in alongside a new
-`internal/database/sqlstore` package. Don't pre-build any of that.
+```
+# In-memory (default):
+go run ./cmd/dispatchd
+
+# Postgres:
+DISPATCH_DATABASE_URL="postgres://dispatch:dispatch@localhost:5432/dispatch?sslmode=disable" \
+  go run ./cmd/dispatchd
+```
+
+The pgstore runs embedded migrations on startup via a minimal
+`schema_migrations` table. Migration SQL lives in
+`internal/database/pgstore/migrations/` and is embedded with
+`//go:embed`.
 
 ## Components
 
@@ -83,6 +90,23 @@ calls `analysis.Analyze` per metric, and sets the experiment's
 is O(n) over samples for the experiment, which is fine at simulation
 scale — if it ever isn't, switch to running aggregates updated inside
 `InsertSample`.
+
+### The Postgres backing — `internal/database/pgstore/`
+
+Drop-in replacement for memstore. Uses pgx v5 connection pool,
+same ID scheme (`exp-`, `smp-`, `key-`, `aud-` prefixes + random
+hex), same validation logic, same error sentinels. The decorator
+stack and all handlers are unchanged.
+
+`pgstore.go` — the `Store` implementation. Each method maps to
+straightforward SQL. `AnalyzeExperiment` runs inside a transaction
+with `SELECT ... FOR UPDATE` to prevent concurrent analysis of the
+same experiment.
+
+`migrate.go` — embedded migration runner. SQL files in
+`pgstore/migrations/` are applied in lexicographic order via a
+`schema_migrations` tracking table. No external migration tool
+dependency.
 
 ### The wrappers
 

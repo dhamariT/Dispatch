@@ -14,18 +14,39 @@ import (
 	"github.com/dhamariT/dispatch/internal/database/dbauthz"
 	"github.com/dhamariT/dispatch/internal/database/dbmetrics"
 	"github.com/dhamariT/dispatch/internal/database/memstore"
+	"github.com/dhamariT/dispatch/internal/database/pgstore"
 	"github.com/dhamariT/dispatch/internal/simulation"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	// Build the layered store: memstore is the backing data, dbmetrics
-	// records per-method latency, dbaudit writes audit entries on
-	// mutating ops, and dbauthz enforces RBAC at the boundary. Every
-	// handler holds the dbauthz-wrapped store and cannot reach past it.
-	backing := memstore.New()
+	// Select the backing store. When DISPATCH_DATABASE_URL is set,
+	// use Postgres; otherwise fall back to the in-memory store so
+	// the simulation works without any external dependencies.
+	var backing database.Store
+	if dbURL := os.Getenv("DISPATCH_DATABASE_URL"); dbURL != "" {
+		pool, err := pgxpool.New(context.Background(), dbURL)
+		if err != nil {
+			log.Error("connect to postgres", "err", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+
+		if err := pgstore.Migrate(context.Background(), pool, log); err != nil {
+			log.Error("run migrations", "err", err)
+			os.Exit(1)
+		}
+
+		backing = pgstore.New(pool)
+		log.Info("backing store: postgres")
+	} else {
+		backing = memstore.New()
+		log.Info("backing store: in-memory")
+	}
+
 	metrics := dbmetrics.New(backing)
 	audited := dbaudit.New(metrics, log)
 	store := dbauthz.New(audited)
