@@ -6,6 +6,7 @@ import (
 
 	"github.com/dhamariT/dispatch/internal/experiment"
 	"github.com/dhamariT/dispatch/internal/metric"
+	"github.com/google/uuid"
 )
 
 type Scenario struct {
@@ -22,10 +23,10 @@ var Scenarios = []Scenario{
 
 const samplesPerDevice = 30
 
-// Run creates an experiment, populates it with simulated metric
-// streams for the chosen scenario, runs the analysis, and returns
+// Run creates an experiment under orgID, populates it with simulated
+// metric streams for the chosen scenario, runs the analysis, and returns
 // the decided experiment.
-func Run(store *experiment.Store, scenarioName string) (*experiment.Experiment, error) {
+func Run(store *experiment.Store, orgID uuid.UUID, scenarioName string) (*experiment.Experiment, error) {
 	rng := rand.New(rand.NewChaCha8([32]byte{}))
 
 	devices := []string{"car-1", "car-2", "car-3"}
@@ -33,7 +34,7 @@ func Run(store *experiment.Store, scenarioName string) (*experiment.Experiment, 
 	control := devices[1:]
 
 	id := scenarioName + "-" + time.Now().Format("150405")
-	e := store.Create(id, "deploy-"+scenarioName, canary, control, 5)
+	e := store.Create(id, orgID, "deploy-"+scenarioName, canary, control, 5)
 
 	// Register metric directions: higher accuracy is better,
 	// lower CPU/memory/latency is better.

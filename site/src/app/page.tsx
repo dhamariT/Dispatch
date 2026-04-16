@@ -1,198 +1,159 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { DemoBanner } from "@/components/demo-banner";
-import { Nav } from "@/components/nav";
-import { ScenarioPicker, type ScenarioOption } from "@/components/scenario-picker";
-import { ExperimentVerdict } from "@/components/experiment-verdict";
-import { ExperimentMetricsTable } from "@/components/experiment-metrics-table";
-import type { ExperimentMetricRowProps } from "@/components/experiment-metric-row";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
-const scenarios: ScenarioOption[] = [
-  {
-    name: "lidar_regression",
-    description:
-      "Canary's LiDAR accuracy drops significantly. CPU spikes. Auto-hold triggers on 3 of 4 metrics.",
-    outcome: "auto_hold",
-    icon: "shield",
-  },
-  {
-    name: "healthy_deploy",
-    description:
-      "All metrics stable across canary and control groups. No significant differences detected.",
-    outcome: "promote",
-    icon: "check",
-  },
-  {
-    name: "noisy_but_safe",
-    description:
-      "High variance in both groups drowns out small differences. Tests the effect size gate.",
-    outcome: "promote",
-    icon: "activity",
-  },
-  {
-    name: "slow_regression",
-    description:
-      "Small CPU regression with moderate effect size. Borderline case that tests the decision threshold.",
-    outcome: "auto_hold",
-    icon: "gauge",
-  },
-];
+export default function RootPage() {
+  const router = useRouter();
+  const { status: authStatus, user, signOut } = useAuth();
+  const [orgs, setOrgs] = useState<api.OrgSummary[] | null>(null);
+  const [orgsError, setOrgsError] = useState<string | null>(null);
 
-const metricFormats: Record<string, ExperimentMetricRowProps["format"]> = {
-  lidar_accuracy: "percent",
-  cpu_usage: "percent",
-  memory_mb: "bytes",
-  fusion_latency_ms: "ms",
-};
+  const [slug, setSlug] = useState("");
+  const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-const metricDisplayNames: Record<string, string> = {
-  lidar_accuracy: "LiDAR accuracy",
-  cpu_usage: "CPU usage",
-  memory_mb: "Memory",
-  fusion_latency_ms: "Fusion latency",
-};
-
-function toMetricRows(results: api.ExperimentMetric[]): ExperimentMetricRowProps[] {
-  return results.map((r) => ({
-    name: metricDisplayNames[r.metric_name] ?? r.metric_name,
-    format: metricFormats[r.metric_name] ?? "number",
-    canaryMean: r.canary_mean,
-    canarySD: r.canary_sd,
-    canaryN: r.canary_n,
-    controlMean: r.control_mean,
-    controlSD: r.control_sd,
-    controlN: r.control_n,
-    pValue: r.p_value,
-    effectSize: r.effect_size,
-    verdict: r.verdict,
-  }));
-}
-
-export default function DashboardPage() {
-  const [selected, setSelected] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [experiment, setExperiment] = useState<api.Experiment | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleRun = useCallback(async () => {
-    if (!selected) return;
-    setRunning(true);
-    setError(null);
-    setExperiment(null);
-    try {
-      const exp = await api.runScenario(selected);
-      setExperiment(exp);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to run experiment");
-    } finally {
-      setRunning(false);
+  useEffect(() => {
+    if (authStatus === "anonymous") {
+      router.replace("/login");
     }
-  }, [selected]);
+  }, [authStatus, router]);
 
-  const handlePromote = useCallback(async () => {
-    if (!experiment) return;
-    try {
-      const updated = await api.promoteExperiment(experiment.id);
-      setExperiment(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to promote");
-    }
-  }, [experiment]);
+  useEffect(() => {
+    if (authStatus !== "authenticated") return;
+    let alive = true;
+    api
+      .listMyOrgs()
+      .then((list) => {
+        if (!alive) return;
+        setOrgs(list);
+        if (list.length === 1) {
+          router.replace(`/${list[0].slug}`);
+        }
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setOrgsError(err instanceof Error ? err.message : "Failed to load orgs");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [authStatus, router]);
 
-  const handleHold = useCallback(async () => {
-    if (!experiment) return;
-    try {
-      const updated = await api.holdExperiment(experiment.id, "Manual hold from dashboard");
-      setExperiment(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to hold");
-    }
-  }, [experiment]);
+  const handleCreate = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setCreating(true);
+      setCreateError(null);
+      try {
+        const org = await api.createOrg(slug.trim(), name.trim());
+        router.replace(`/${org.slug}`);
+      } catch (err) {
+        setCreateError(err instanceof Error ? err.message : "Failed to create org");
+      } finally {
+        setCreating(false);
+      }
+    },
+    [slug, name, router],
+  );
 
-  const results = experiment?.results ?? [];
-  const regressionCount = results.filter((r) => r.verdict === "regression").length;
+  if (authStatus === "loading" || authStatus === "anonymous") {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading…
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <Nav fleetName="PiRacer Fleet (Simulation)" />
-      <DemoBanner />
+      <header className="flex items-center justify-between border-b border-border px-8 py-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-semibold tracking-tight">Dispatch</span>
+          <span className="text-xs text-muted-foreground">causal deploy validation</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>
+            Signed in as <span className="text-foreground">{user?.login}</span>
+          </span>
+          <Button variant="outline" size="sm" onClick={() => void signOut().then(() => router.replace("/login"))}>
+            Sign out
+          </Button>
+        </div>
+      </header>
 
-      <main className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-8 px-8 py-8">
+      <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-10 px-8 py-12">
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Simulation scenarios
-          </h2>
-          <ScenarioPicker
-            scenarios={scenarios}
-            selected={selected}
-            onSelect={setSelected}
-            onRun={handleRun}
-            running={running}
-          />
+          <h1 className="text-2xl font-semibold tracking-tight">Your organizations</h1>
+          <p className="text-sm text-muted-foreground">
+            Pick an organization to open its deploy-validation dashboard, or create a new one for your team.
+          </p>
         </section>
 
-        {error && (
+        {orgsError && (
           <div className="rounded-lg border border-critical/40 bg-critical-bg/30 px-4 py-3 text-sm text-critical">
-            {error}
+            {orgsError}
           </div>
         )}
 
-        {experiment && (
-          <>
-            <section className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  Experiment verdict
-                </h2>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {experiment.id}
-                </span>
-              </div>
-
-              <ExperimentVerdict
-                status={experiment.status}
-                decision={experiment.decision || null}
-                holdReason={experiment.hold_reason || null}
-                regressionCount={regressionCount}
-                metricCount={results.length}
-              />
-
-              {experiment.status === "decided" && (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Canary: {experiment.canary_devices.join(", ")}</span>
-                    <span className="text-border">|</span>
-                    <span>Control: {experiment.control_devices.join(", ")}</span>
-                  </div>
-                  <div className="ml-auto flex items-center gap-2">
-                    {experiment.decision === "auto_hold" && (
-                      <Button variant="outline" size="sm" onClick={handlePromote}>
-                        Override &amp; promote
-                      </Button>
-                    )}
-                    {experiment.decision === "promote" && (
-                      <Button variant="outline" size="sm" onClick={handleHold}>
-                        Hold
-                      </Button>
-                    )}
-                  </div>
+        {orgs && orgs.length > 0 && (
+          <section className="flex flex-col gap-3">
+            {orgs.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => router.push(`/${o.slug}`)}
+                className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/60"
+              >
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{o.name}</span>
+                  <span className="text-xs text-muted-foreground">/{o.slug}</span>
                 </div>
-              )}
-            </section>
-
-            {results.length > 0 && (
-              <section className="flex flex-col gap-3">
-                <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  Metric comparison
-                </h2>
-                <ExperimentMetricsTable metrics={toMetricRows(results)} />
-              </section>
-            )}
-          </>
+                <span className="text-xs uppercase tracking-wider text-muted-foreground">{o.role}</span>
+              </button>
+            ))}
+          </section>
         )}
+
+        <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-6">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-sm font-semibold">Create a new organization</h2>
+            <p className="text-xs text-muted-foreground">
+              You become the first admin. You can invite teammates from the members page.
+            </p>
+          </div>
+          <form className="flex flex-col gap-3" onSubmit={handleCreate}>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Name
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                placeholder="Acme Robotics"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Slug
+              <input
+                value={slug}
+                onChange={(e) => setSlug(e.target.value.toLowerCase())}
+                required
+                pattern="^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])?$"
+                className="rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-primary"
+                placeholder="acme-robotics"
+              />
+            </label>
+            {createError && <p className="text-xs text-critical">{createError}</p>}
+            <Button type="submit" disabled={creating} size="sm" className="self-start">
+              {creating ? "Creating…" : "Create organization"}
+            </Button>
+          </form>
+        </section>
       </main>
     </div>
   );
