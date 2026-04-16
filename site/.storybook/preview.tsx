@@ -5,7 +5,7 @@ import "../src/app/globals.css";
 
 // Applies the selected theme by toggling the dark class on <html>.
 // Tailwind and our CSS variables respond to this class.
-const withTheme: DecoratorFunction<ReactRenderer> = (Story, context) => {
+const ThemeDecorator: DecoratorFunction<ReactRenderer> = (Story, context) => {
   const theme = context.globals.theme || "dark";
 
   useEffect(() => {
@@ -56,7 +56,7 @@ const preview: Preview = {
       },
     },
   },
-  decorators: [withTheme],
+  decorators: [ThemeDecorator],
 };
 
 export default preview;

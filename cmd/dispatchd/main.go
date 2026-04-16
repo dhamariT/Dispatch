@@ -434,4 +434,3 @@ func runScenario(store database.Store, agentSubjects map[string]database.Subject
 		writeJSON(w, http.StatusOK, exp)
 	}
 }
-

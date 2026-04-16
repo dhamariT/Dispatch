@@ -28,7 +28,7 @@ export function DemoBanner({ className }: DemoBannerProps) {
         </svg>
       </span>
       <span className="text-foreground">
-        <span className="font-semibold">You're exploring a demo</span>
+        <span className="font-semibold">You&apos;re exploring a demo</span>
         <span className="text-muted-foreground">
           {" "}
           with simulated devices. Actions like Promote and Rollback mutate
